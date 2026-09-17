@@ -159,9 +159,57 @@ export function renderGitBranch(cwd) {
     return `${dim('branch:')}${cyan(branch)}`;
 }
 /**
+ * Resolve the remote-tracking ref that `git push` would update for the current
+ * branch, or null when it cannot be determined.
+ *
+ * `git status -b` reports ahead/behind against the *upstream* branch. In a fork
+ * setup that pulls from one remote and pushes to another, that is not what
+ * "unpushed" means: every local-only commit reads as permanently ahead, and the
+ * count grows without ever going back to zero.
+ *
+ * `@{push}` would name the right ref, but git refuses to resolve it under
+ * `push.default=simple` whenever the push remote differs from the upstream
+ * remote ("cannot resolve 'simple' push to a single destination"), so the
+ * remote is resolved by hand in the same precedence `git push` uses.
+ */
+function resolvePushRef(cwd) {
+    try {
+        const branch = git(['rev-parse', '--abbrev-ref', 'HEAD'], cwd);
+        if (!branch || branch === 'HEAD')
+            return null; // detached HEAD
+        const configOrNull = (key) => {
+            try {
+                // An unset key is not an error condition for callers, but `git config
+                // --get` exits non-zero for it.
+                return git(['config', '--get', key], cwd) || null;
+            }
+            catch {
+                return null;
+            }
+        };
+        const remote = configOrNull(`branch.${branch}.pushRemote`) ??
+            configOrNull('remote.pushDefault') ??
+            configOrNull(`branch.${branch}.remote`);
+        if (!remote)
+            return null;
+        const ref = `refs/remotes/${remote}/${branch}`;
+        try {
+            git(['rev-parse', '--verify', '--quiet', ref], cwd);
+        }
+        catch {
+            return null; // Configured, but never fetched — fall back to the status line.
+        }
+        return ref;
+    }
+    catch {
+        return null;
+    }
+}
+/**
  * Get git working tree status counts.
- * Parses `git --no-optional-locks status --porcelain -b` for staged, modified, untracked,
- * ahead, and behind counts.
+ * Parses `git --no-optional-locks status --porcelain -b` for staged, modified,
+ * untracked and `behind` counts. `ahead` is measured against the ref `git push`
+ * would update when one can be resolved, and against the status line otherwise.
  *
  * @param cwd - Working directory
  * @returns Status counts or null if not in a git repo
@@ -178,12 +226,33 @@ export function getGitStatusCounts(cwd) {
         let staged = 0, modified = 0, untracked = 0, ahead = 0, behind = 0;
         if (output) {
             const lines = output.split('\n');
-            // Parse branch line for ahead/behind: ## main...origin/main [ahead 3, behind 1]
+            // Parse branch line for counts: ## main...origin/main [ahead 3, behind 1]
             const branchLine = lines[0];
-            const aheadMatch = branchLine.match(/\bahead (\d+)/);
+            // `ahead` is measured against the ref `git push` would update, so it means
+            // "not pushed to the fork" rather than "not pushed to the upstream branch"
+            // (see resolvePushRef). `behind` deliberately keeps the status line's
+            // upstream count: falling behind the canonical remote is the actionable
+            // pull signal, while a fork that is merely stale is not.
+            let aheadResolved = false;
+            const pushRef = resolvePushRef(cwd);
+            if (pushRef) {
+                try {
+                    const parsedAhead = Number.parseInt(git(['rev-list', '--count', `${pushRef}..HEAD`], cwd), 10);
+                    if (Number.isFinite(parsedAhead)) {
+                        ahead = parsedAhead;
+                        aheadResolved = true;
+                    }
+                }
+                catch {
+                    // Fall through to the status line.
+                }
+            }
+            if (!aheadResolved) {
+                const aheadMatch = branchLine.match(/\bahead (\d+)/);
+                if (aheadMatch)
+                    ahead = parseInt(aheadMatch[1], 10);
+            }
             const behindMatch = branchLine.match(/\bbehind (\d+)/);
-            if (aheadMatch)
-                ahead = parseInt(aheadMatch[1], 10);
             if (behindMatch)
                 behind = parseInt(behindMatch[1], 10);
             for (let i = 1; i < lines.length; i++) {

@@ -110,8 +110,9 @@ describe('getGitStatusCounts', () => {
   it('returns cached result on second call', () => {
     mockedExecFileSync.mockReturnValue('## main\n?? file.ts\n' as any);
     getGitStatusCounts('/tmp');
+    const callsAfterFirst = mockedExecFileSync.mock.calls.length;
     getGitStatusCounts('/tmp');
-    expect(mockedExecFileSync).toHaveBeenCalledTimes(1);
+    expect(mockedExecFileSync.mock.calls.length).toBe(callsAfterFirst);
   });
 
   it('disables optional git locks for background HUD polling', () => {
@@ -194,5 +195,120 @@ describe('renderGitStatus', () => {
     expect(result).toContain('未跟踪');
     expect(result).toContain('领先');
     expect(result).toContain('落后');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ahead is measured against the push remote
+// ---------------------------------------------------------------------------
+describe('getGitStatusCounts push-remote handling', () => {
+  /**
+   * Dispatch mocked git calls by argument so a test can describe the working
+   * tree, the configured push remote and the resulting commit count
+   * independently. `git config --get` throws for an unset key, as the real one
+   * does, and resolvePushRef relies on that to walk its fallbacks.
+   */
+  function mockRepo(options: {
+    status: string;
+    head?: string;
+    config?: Record<string, string>;
+    pushRefExists?: boolean;
+    aheadOfPushRef?: number;
+  }) {
+    const config = options.config ?? {};
+    mockedExecFileSync.mockImplementation(((_cmd: string, args: string[]) => {
+      if (args[0] === '--no-optional-locks') return options.status;
+      if (args[0] === 'rev-parse' && args[1] === '--abbrev-ref') {
+        return `${options.head ?? 'main'}\n`;
+      }
+      if (args[0] === 'config') {
+        const value = config[args[2]];
+        if (value === undefined) throw new Error(`unset: ${args[2]}`);
+        return `${value}\n`;
+      }
+      if (args[0] === 'rev-parse' && args[1] === '--verify') {
+        if (options.pushRefExists === false) throw new Error('no such ref');
+        return 'abc1234\n';
+      }
+      if (args[0] === 'rev-list') return `${options.aheadOfPushRef ?? 0}\n`;
+      throw new Error(`unexpected git invocation: ${args.join(' ')}`);
+    }) as any);
+  }
+
+  it('takes ahead from the push remote rather than the upstream branch', () => {
+    // The status line still reports 7, but the fork already has everything.
+    mockRepo({
+      status: '## main...upstream/main [ahead 7]\n',
+      config: { 'branch.main.remote': 'upstream', 'remote.pushDefault': 'origin' },
+      aheadOfPushRef: 0,
+    });
+    expect(getGitStatusCounts('/tmp')?.ahead).toBe(0);
+  });
+
+  it('keeps behind measured against the upstream branch', () => {
+    mockRepo({
+      status: '## main...upstream/main [behind 3]\n',
+      config: { 'branch.main.remote': 'upstream', 'remote.pushDefault': 'origin' },
+      aheadOfPushRef: 0,
+    });
+    expect(getGitStatusCounts('/tmp')?.behind).toBe(3);
+  });
+
+  it('reports both directions at once', () => {
+    mockRepo({
+      status: '## main...upstream/main [behind 3]\n',
+      config: { 'branch.main.remote': 'upstream', 'remote.pushDefault': 'origin' },
+      aheadOfPushRef: 2,
+    });
+    const counts = getGitStatusCounts('/tmp');
+    expect(counts?.ahead).toBe(2);
+    expect(counts?.behind).toBe(3);
+  });
+
+  it('prefers branch.<name>.pushRemote over remote.pushDefault', () => {
+    mockRepo({
+      status: '## main...upstream/main [ahead 7]\n',
+      config: {
+        'branch.main.pushRemote': 'fork',
+        'remote.pushDefault': 'origin',
+        'branch.main.remote': 'upstream',
+      },
+      aheadOfPushRef: 1,
+    });
+    expect(getGitStatusCounts('/tmp')?.ahead).toBe(1);
+    expect(mockedExecFileSync).toHaveBeenCalledWith(
+      'git',
+      ['rev-list', '--count', 'refs/remotes/fork/main..HEAD'],
+      expect.anything(),
+    );
+    // The first match short-circuits the later fallbacks.
+    expect(mockedExecFileSync).not.toHaveBeenCalledWith(
+      'git',
+      ['config', '--get', 'remote.pushDefault'],
+      expect.anything(),
+    );
+  });
+
+  it('falls back to the status line when the push ref was never fetched', () => {
+    mockRepo({
+      status: '## main...upstream/main [ahead 4]\n',
+      config: { 'remote.pushDefault': 'origin' },
+      pushRefExists: false,
+    });
+    expect(getGitStatusCounts('/tmp')?.ahead).toBe(4);
+  });
+
+  it('falls back to the status line when no push remote is configured', () => {
+    mockRepo({ status: '## main...upstream/main [ahead 4]\n', config: {} });
+    expect(getGitStatusCounts('/tmp')?.ahead).toBe(4);
+  });
+
+  it('falls back to the status line on a detached HEAD', () => {
+    mockRepo({
+      status: '## HEAD (no branch)\n',
+      head: 'HEAD',
+      config: { 'remote.pushDefault': 'origin' },
+    });
+    expect(getGitStatusCounts('/tmp')?.ahead).toBe(0);
   });
 });

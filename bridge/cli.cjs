@@ -92569,6 +92569,30 @@ function renderGitBranch(cwd2) {
   }
   return `${dim("branch:")}${cyan(branch)}`;
 }
+function resolvePushRef(cwd2) {
+  try {
+    const branch = git3(["rev-parse", "--abbrev-ref", "HEAD"], cwd2);
+    if (!branch || branch === "HEAD") return null;
+    const configOrNull = (key) => {
+      try {
+        return git3(["config", "--get", key], cwd2) || null;
+      } catch {
+        return null;
+      }
+    };
+    const remote = configOrNull(`branch.${branch}.pushRemote`) ?? configOrNull("remote.pushDefault") ?? configOrNull(`branch.${branch}.remote`);
+    if (!remote) return null;
+    const ref = `refs/remotes/${remote}/${branch}`;
+    try {
+      git3(["rev-parse", "--verify", "--quiet", ref], cwd2);
+    } catch {
+      return null;
+    }
+    return ref;
+  } catch {
+    return null;
+  }
+}
 function getGitStatusCounts(cwd2) {
   const key = cwd2 ? (0, import_node_path31.resolve)(cwd2) : process.cwd();
   const cached2 = statusCache.get(key);
@@ -92582,9 +92606,26 @@ function getGitStatusCounts(cwd2) {
     if (output) {
       const lines = output.split("\n");
       const branchLine = lines[0];
-      const aheadMatch = branchLine.match(/\bahead (\d+)/);
+      let aheadResolved = false;
+      const pushRef = resolvePushRef(cwd2);
+      if (pushRef) {
+        try {
+          const parsedAhead = Number.parseInt(
+            git3(["rev-list", "--count", `${pushRef}..HEAD`], cwd2),
+            10
+          );
+          if (Number.isFinite(parsedAhead)) {
+            ahead = parsedAhead;
+            aheadResolved = true;
+          }
+        } catch {
+        }
+      }
+      if (!aheadResolved) {
+        const aheadMatch = branchLine.match(/\bahead (\d+)/);
+        if (aheadMatch) ahead = parseInt(aheadMatch[1], 10);
+      }
       const behindMatch = branchLine.match(/\bbehind (\d+)/);
-      if (aheadMatch) ahead = parseInt(aheadMatch[1], 10);
       if (behindMatch) behind = parseInt(behindMatch[1], 10);
       for (let i = 1; i < lines.length; i++) {
         const line = lines[i];
