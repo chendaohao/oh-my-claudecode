@@ -15,8 +15,6 @@ import {
 } from '../lib/worktree-paths.js';
 import type { RateLimits, StatuslineStdin } from './types.js';
 
-const TRANSIENT_CONTEXT_PERCENT_TOLERANCE = 3;
-
 // ============================================================================
 // Stdin Cache (for --watch mode)
 // ============================================================================
@@ -260,13 +258,15 @@ function getTotalTokens(stdin: StatuslineStdin): number {
   const usage = getCurrentUsage(stdin);
   return (
     (usage?.input_tokens ?? 0) +
+    (usage?.output_tokens ?? 0) +
     (usage?.cache_creation_input_tokens ?? 0) +
     (usage?.cache_read_input_tokens ?? 0)
   );
 }
 
 function getTotalInputTokens(stdin: StatuslineStdin): number {
-  return stdin.context_window?.total_input_tokens ?? 0;
+  const cw = stdin.context_window;
+  return (cw?.total_input_tokens ?? 0) + (cw?.total_output_tokens ?? 0);
 }
 
 function getRoundedNativeContextPercent(stdin: StatuslineStdin | null | undefined): number | null {
@@ -315,15 +315,78 @@ function getTotalInputContextPercent(stdin: StatuslineStdin): number | null {
 }
 
 function isSameContextStream(current: StatuslineStdin, previous: StatuslineStdin): boolean {
+  // When current stdin tick omits context_window (Claude Code does not send
+  // context data on every statusLine tick), treat it as the same stream
+  // when cwd and transcript_path match. Without this, every missing-context
+  // tick bypasses stabilizeContextPercent, causing a 0% flicker.
+  if (!current.context_window && previous?.context_window) {
+    return current.cwd === previous.cwd
+      && current.transcript_path === previous.transcript_path;
+  }
   return current.cwd === previous.cwd
     && current.transcript_path === previous.transcript_path
     && current.context_window?.context_window_size === previous.context_window?.context_window_size;
 }
 
 /**
+ * Estimate context percentage from transcript file size.
+ * Used as a last-resort fallback for non-Anthropic models (e.g. DeepSeek)
+ * where Claude Code does not report context_window data.
+ * OMC_HUD_PATCH2
+ */
+function getTranscriptContextPercent(stdin: StatuslineStdin): number | null {
+  const transcriptPath = stdin.transcript_path;
+  if (!transcriptPath || !existsSync(transcriptPath)) {
+    return null;
+  }
+
+  const size = stdin.context_window?.context_window_size;
+  if (!size || size <= 0) {
+    return null;
+  }
+
+  try {
+    const stat = statSync(transcriptPath);
+    if (!stat.isFile() || stat.size <= 0) {
+      return null;
+    }
+    // Conservative estimate: JSONL wrapping adds ~5 bytes per token
+    const estimatedTokens = Math.round(stat.size * 0.2);
+    if (estimatedTokens < 100) {
+      return null;
+    }
+    return Math.min(100, Math.round((estimatedTokens / size) * 100));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Check if the transcript file was cleared (e.g. via /clear command).
+ * A cleared transcript means context legitimately reset to 0, so
+ * stabilization should NOT preserve the previous percentage.
+ * During transient pauses the transcript still has content.
+ */
+function isTranscriptCleared(stdin: StatuslineStdin): boolean {
+  const path = stdin.transcript_path;
+  if (!path || !existsSync(path)) {
+    return false;
+  }
+
+  try {
+    // /clear truncates transcript to near empty (<500 bytes = essentially empty)
+    // Transient pause leaves transcript with full conversation content
+    return statSync(path).size < 500;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Preserve the last native context percentage across transient snapshots where Claude Code
- * omits `used_percentage`, but only when the fallback calculation is close enough to suggest
- * the same underlying value rather than a real context jump.
+ * sends used_percentage: 0 or omits it entirely (e.g. paused mid-conversation between API
+ * calls). In the same context stream we carry the previous valid native value forward.
+ * OMC_HUD_PATCH1 + OMC_HUD_PATCH3
  */
 export function stabilizeContextPercent(
   stdin: StatuslineStdin,
@@ -338,21 +401,23 @@ export function stabilizeContextPercent(
   }
 
   const previousNativePercent = getRoundedNativeContextPercent(previousStdin);
-  if (previousNativePercent === null) {
+  if (previousNativePercent === null || previousNativePercent <= 0) {
     return stdin;
   }
 
-  const fallbackPercent = getPositiveManualContextPercent(stdin) ?? getTotalInputContextPercent(stdin);
-  if (fallbackPercent === null && getRoundedNativeContextPercent(stdin) === 0) {
-    return stdin;
-  }
-  if (
-    fallbackPercent !== null
-    && Math.abs(fallbackPercent - previousNativePercent) > TRANSIENT_CONTEXT_PERCENT_TOLERANCE
-  ) {
+  // Check if transcript was cleared (e.g. /clear command).
+  // When the transcript is truncated to near-empty, context legitimately went to 0.
+  // During transient pauses the transcript still has the full conversation content.
+  if (isTranscriptCleared(stdin)) {
     return stdin;
   }
 
+  // Current native is 0 or missing. Carry forward the previous valid native percentage
+  // across transient snapshots where Claude Code pauses mid-conversation and sends
+  // used_percentage: 0 with zero token counts. We only truly reset when the context
+  // stream changes (handled by isSameContextStream above) or transcript is cleared
+  // (handled by isTranscriptCleared above).
+  // OMC_HUD_PATCH1 + OMC_HUD_PATCH3
   return {
     ...stdin,
     context_window: {
@@ -373,6 +438,7 @@ export function getContextPercent(stdin: StatuslineStdin): number {
     getPositiveNativeContextPercent(stdin)
     ?? getPositiveManualContextPercent(stdin)
     ?? getTotalInputContextPercent(stdin)
+    ?? getTranscriptContextPercent(stdin)
     ?? 0
   );
 }

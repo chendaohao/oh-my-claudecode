@@ -31,8 +31,9 @@ export declare function readStdinCache(): StatuslineStdin | null;
 export declare function readStdin(): Promise<StatuslineStdin | null>;
 /**
  * Preserve the last native context percentage across transient snapshots where Claude Code
- * omits `used_percentage`, but only when the fallback calculation is close enough to suggest
- * the same underlying value rather than a real context jump.
+ * sends used_percentage: 0 or omits it entirely (e.g. paused mid-conversation between API
+ * calls). In the same context stream we carry the previous valid native value forward.
+ * OMC_HUD_PATCH1 + OMC_HUD_PATCH3
  */
 export declare function stabilizeContextPercent(stdin: StatuslineStdin, previousStdin: StatuslineStdin | null | undefined): StatuslineStdin;
 /**

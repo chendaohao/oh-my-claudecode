@@ -92,7 +92,12 @@ describe('HUD stdin context percent', () => {
         });
         expect(getContextPercent(stdin)).toBe(54);
     });
-    it('does not hide a real context jump when the fallback differs materially', () => {
+    it('carries the previous native percentage forward across a same-stream tick', () => {
+        // OMC_HUD_PATCH1/3: within one context stream the previous valid native
+        // percentage is always carried forward. The former
+        // TRANSIENT_CONTEXT_PERCENT_TOLERANCE guard (which let a materially
+        // different fallback through) was removed on purpose — it was what let
+        // non-Anthropic ticks flicker to 0%.
         const previous = makeStdin({
             context_window: {
                 used_percentage: 80,
@@ -114,9 +119,9 @@ describe('HUD stdin context percent', () => {
                 },
             },
         });
-        expect(getContextPercent(stabilizeContextPercent(current, previous))).toBe(20);
+        expect(getContextPercent(stabilizeContextPercent(current, previous))).toBe(80);
     });
-    it('uses cache-read totals in stabilization decisions', () => {
+    it('uses cache-read totals for the raw percentage but still carries the previous native forward', () => {
         const previous = makeStdin({
             context_window: {
                 used_percentage: 54,
@@ -139,7 +144,7 @@ describe('HUD stdin context percent', () => {
             },
         });
         expect(getContextPercent(current)).toBe(100);
-        expect(getContextPercent(stabilizeContextPercent(current, previous))).toBe(100);
+        expect(getContextPercent(stabilizeContextPercent(current, previous))).toBe(54);
     });
     it('falls back to total_input_tokens when native and manual usage are zero', () => {
         const stdin = makeStdin({
@@ -156,7 +161,7 @@ describe('HUD stdin context percent', () => {
         });
         expect(getContextPercent(stdin)).toBe(33);
     });
-    it('keeps a legitimate all-zero session at zero', () => {
+    it('keeps a legitimate all-zero session at zero before stabilization', () => {
         const stdin = makeStdin({
             context_window: {
                 used_percentage: 0,
@@ -170,6 +175,22 @@ describe('HUD stdin context percent', () => {
             },
         });
         expect(getContextPercent(stdin)).toBe(0);
+    });
+    it('carries the previous native forward when the transcript is still populated', () => {
+        // Same stream, transcript not cleared: patch semantics keep the previous
+        // valid native percentage rather than dropping to the raw 0.
+        const stdin = makeStdin({
+            context_window: {
+                used_percentage: 0,
+                context_window_size: 1_000_000,
+                total_input_tokens: 0,
+                current_usage: {
+                    input_tokens: 0,
+                    cache_creation_input_tokens: 0,
+                    cache_read_input_tokens: 0,
+                },
+            },
+        });
         expect(getContextPercent(stabilizeContextPercent(stdin, makeStdin({
             context_window: {
                 used_percentage: 1,
@@ -180,7 +201,34 @@ describe('HUD stdin context percent', () => {
                     cache_read_input_tokens: 0,
                 },
             },
-        })))).toBe(0);
+        })))).toBe(1);
+    });
+    it('resets to zero when the transcript was cleared', () => {
+        // isTranscriptCleared is the escape hatch that keeps carry-forward from
+        // masking a real reset after /clear.
+        const dir = mkdtempSync(join(tmpdir(), 'omc-stdin-cleared-'));
+        const transcript = join(dir, 'session.jsonl');
+        writeFileSync(transcript, '');
+        try {
+            const previous = makeStdin({
+                transcript_path: transcript,
+                context_window: {
+                    used_percentage: 42,
+                    context_window_size: 1_000_000,
+                },
+            });
+            const current = makeStdin({
+                transcript_path: transcript,
+                context_window: {
+                    used_percentage: 0,
+                    context_window_size: 1_000_000,
+                },
+            });
+            expect(getContextPercent(stabilizeContextPercent(current, previous))).toBe(0);
+        }
+        finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
     });
     it('lets manual usage win over total_input_tokens when native usage is zero', () => {
         const stdin = makeStdin({
