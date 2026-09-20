@@ -7,7 +7,7 @@
 
 import { homedir } from 'node:os';
 import { basename, dirname } from 'node:path';
-import { dim } from '../colors.js';
+import { cyan, dim } from '../colors.js';
 import type { CwdFormat } from '../types.js';
 
 /**
@@ -86,12 +86,14 @@ export function renderCwd(
       displayPath = cwd;
   }
 
-  const rendered = `${dim(displayPath)}`;
+  const label = dim('project:');
+  const rendered = `${cyan(displayPath)}`;
 
+  // The label stays outside the OSC 8 link so only the path itself is clickable.
   if (useHyperlinks) {
     const url = pathToFileUrl(cwd);
-    return osc8Link(url, rendered);
+    return `${label}${osc8Link(url, rendered)}`;
   }
 
-  return rendered;
+  return `${label}${rendered}`;
 }

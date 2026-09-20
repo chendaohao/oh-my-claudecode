@@ -85,9 +85,24 @@ describe('renderCwd', () => {
   });
 
   describe('styling', () => {
-    it('applies dim styling', () => {
+    it('applies cyan styling', () => {
       const result = renderCwd('/Users/testuser/project');
-      expect(result).toContain('\x1b[2m'); // dim escape code
+      expect(result).toContain('\x1b[36m'); // cyan escape code
+    });
+
+    it('prefixes the path with a dimmed project: label', () => {
+      const result = renderCwd('/Users/testuser/project');
+      expect(result).toContain('\x1b[2mproject:\x1b[0m');
+    });
+  });
+
+  describe('hyperlinks', () => {
+    it('keeps the project: label outside the OSC 8 link', () => {
+      const result = renderCwd('/Users/testuser/project', 'relative', true);
+      expect(result).not.toBeNull();
+      const linkStart = result!.indexOf('\x1b]8;;');
+      expect(linkStart).toBeGreaterThan(-1);
+      expect(result!.slice(0, linkStart)).toContain('project:');
     });
   });
 
