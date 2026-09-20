@@ -14,6 +14,9 @@ NUL
 .omx/
 .env
 
+# Local codegraph index (large SQLite DB + daemon socket/pid)
+.codegraph/
+
 # Local root-level script output
 /done.json
 /farewell.txt
