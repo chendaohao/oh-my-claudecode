@@ -92107,10 +92107,11 @@ function parseResetDate(value) {
 }
 function getTotalTokens(stdin) {
   const usage = getCurrentUsage(stdin);
-  return (usage?.input_tokens ?? 0) + (usage?.cache_creation_input_tokens ?? 0) + (usage?.cache_read_input_tokens ?? 0);
+  return (usage?.input_tokens ?? 0) + (usage?.output_tokens ?? 0) + (usage?.cache_creation_input_tokens ?? 0) + (usage?.cache_read_input_tokens ?? 0);
 }
 function getTotalInputTokens(stdin) {
-  return stdin.context_window?.total_input_tokens ?? 0;
+  const cw = stdin.context_window;
+  return (cw?.total_input_tokens ?? 0) + (cw?.total_output_tokens ?? 0);
 }
 function getRoundedNativeContextPercent(stdin) {
   const nativePercent = stdin?.context_window?.used_percentage;
@@ -92150,7 +92151,44 @@ function getTotalInputContextPercent(stdin) {
   return Math.min(100, Math.round(totalInputTokens / size * 100));
 }
 function isSameContextStream(current, previous) {
+  if (!current.context_window && previous?.context_window) {
+    return current.cwd === previous.cwd && current.transcript_path === previous.transcript_path;
+  }
   return current.cwd === previous.cwd && current.transcript_path === previous.transcript_path && current.context_window?.context_window_size === previous.context_window?.context_window_size;
+}
+function getTranscriptContextPercent(stdin) {
+  const transcriptPath = stdin.transcript_path;
+  if (!transcriptPath || !(0, import_fs121.existsSync)(transcriptPath)) {
+    return null;
+  }
+  const size = stdin.context_window?.context_window_size;
+  if (!size || size <= 0) {
+    return null;
+  }
+  try {
+    const stat2 = (0, import_fs121.statSync)(transcriptPath);
+    if (!stat2.isFile() || stat2.size <= 0) {
+      return null;
+    }
+    const estimatedTokens = Math.round(stat2.size * 0.2);
+    if (estimatedTokens < 100) {
+      return null;
+    }
+    return Math.min(100, Math.round(estimatedTokens / size * 100));
+  } catch {
+    return null;
+  }
+}
+function isTranscriptCleared(stdin) {
+  const path27 = stdin.transcript_path;
+  if (!path27 || !(0, import_fs121.existsSync)(path27)) {
+    return false;
+  }
+  try {
+    return (0, import_fs121.statSync)(path27).size < 500;
+  } catch {
+    return false;
+  }
 }
 function stabilizeContextPercent(stdin, previousStdin) {
   if (getPositiveNativeContextPercent(stdin) !== null) {
@@ -92160,14 +92198,10 @@ function stabilizeContextPercent(stdin, previousStdin) {
     return stdin;
   }
   const previousNativePercent = getRoundedNativeContextPercent(previousStdin);
-  if (previousNativePercent === null) {
+  if (previousNativePercent === null || previousNativePercent <= 0) {
     return stdin;
   }
-  const fallbackPercent = getPositiveManualContextPercent(stdin) ?? getTotalInputContextPercent(stdin);
-  if (fallbackPercent === null && getRoundedNativeContextPercent(stdin) === 0) {
-    return stdin;
-  }
-  if (fallbackPercent !== null && Math.abs(fallbackPercent - previousNativePercent) > TRANSIENT_CONTEXT_PERCENT_TOLERANCE) {
+  if (isTranscriptCleared(stdin)) {
     return stdin;
   }
   return {
@@ -92179,7 +92213,7 @@ function stabilizeContextPercent(stdin, previousStdin) {
   };
 }
 function getContextPercent(stdin) {
-  return getPositiveNativeContextPercent(stdin) ?? getPositiveManualContextPercent(stdin) ?? getTotalInputContextPercent(stdin) ?? 0;
+  return getPositiveNativeContextPercent(stdin) ?? getPositiveManualContextPercent(stdin) ?? getTotalInputContextPercent(stdin) ?? getTranscriptContextPercent(stdin) ?? 0;
 }
 function getRateLimitsFromStdin(stdin) {
   const fiveHour = stdin.rate_limits?.five_hour?.used_percentage;
@@ -92206,14 +92240,13 @@ function getModelName(stdin) {
   const displayName = stdin.model?.display_name?.trim();
   return displayName || getModelId(stdin);
 }
-var import_fs121, import_path144, TRANSIENT_CONTEXT_PERCENT_TOLERANCE, SESSION_ID_ENV_VARS;
+var import_fs121, import_path144, SESSION_ID_ENV_VARS;
 var init_stdin = __esm({
   "src/hud/stdin.ts"() {
     "use strict";
     import_fs121 = require("fs");
     import_path144 = require("path");
     init_worktree_paths();
-    TRANSIENT_CONTEXT_PERCENT_TOLERANCE = 3;
     SESSION_ID_ENV_VARS = ["CLAUDE_SESSION_ID", "CLAUDECODE_SESSION_ID"];
   }
 });
@@ -97669,12 +97702,13 @@ function renderCwd(cwd2, format = "relative", useHyperlinks = false) {
     default:
       displayPath = cwd2;
   }
-  const rendered = `${dim(displayPath)}`;
+  const label = dim("project:");
+  const rendered = `${cyan(displayPath)}`;
   if (useHyperlinks) {
     const url = pathToFileUrl(cwd2);
-    return osc8Link(url, rendered);
+    return `${label}${osc8Link(url, rendered)}`;
   }
-  return rendered;
+  return `${label}${rendered}`;
 }
 var import_node_os6, import_node_path34;
 var init_cwd = __esm({
