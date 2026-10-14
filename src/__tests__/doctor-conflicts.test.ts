@@ -43,9 +43,13 @@ function writePluginRoot(root: string, content: string): void {
   writeFileSync(join(root, 'skills', 'omc-reference', 'SKILL.md'), content);
 }
 
-// Mock getClaudeConfigDir before importing the module under test
+// Mock getClaudeConfigDir before importing the module under test.
+// The state-file helpers are derived from CLAUDE_CONFIG_DIR being set (as the
+// tests below do), so they resolve to a path inside the mocked config dir.
 vi.mock('../utils/config-dir.js', () => ({
   getClaudeConfigDir: () => TEST_DIRS.claudeDir,
+  getClaudeStateFilePath: () => join(TEST_DIRS.claudeDir, '.claude.json'),
+  getClaudeStateFilePathFor: (configDir: string) => join(configDir, '.claude.json'),
 }));
 
 // Mock builtin skills to return a known list for testing

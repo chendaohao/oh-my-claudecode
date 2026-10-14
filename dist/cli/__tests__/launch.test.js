@@ -1030,6 +1030,11 @@ describe('prepareOmcLaunchConfigDir / launchCommand OMC companion loading', () =
     beforeEach(() => {
         vi.resetAllMocks();
         delete process.env.CLAUDECODE;
+        // These fixtures model the unset-CLAUDE_CONFIG_DIR layout, where Claude
+        // Code keeps .claude.json beside the config dir. An ambient value would
+        // flip the layout the production helper computes (it switches on whether
+        // the env var is set), so clear it for determinism.
+        delete process.env.CLAUDE_CONFIG_DIR;
         tempRoot = mkdtempSync(join(tmpdir(), 'omc-launch-profile-'));
         process.env.HOME = join(tempRoot, 'home');
         execFileSync.mockReturnValue(Buffer.from(''));

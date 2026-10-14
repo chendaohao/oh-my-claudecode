@@ -10,7 +10,7 @@ import { atomicWriteJsonSync } from '../lib/atomic-write.js';
 import { lockPathFor, withFileLockSync } from '../lib/file-lock.js';
 import { resolvePluginDirArg } from '../lib/plugin-dir.js';
 import { stripRetiredTeamMcpServers } from '../installer/mcp-registry.js';
-import { getClaudeConfigDir } from '../utils/config-dir.js';
+import { getClaudeConfigDir, getClaudeStateFilePathFor } from '../utils/config-dir.js';
 import { resolveLaunchPolicy, buildTmuxSessionName, buildTmuxShellCommand, buildTmuxShellCommandWithEnv, escapeForCmdSet, isNativeWindowsShell, wrapWithLoginShell, isClaudeAvailable, isTmuxAvailable, quoteShellArg, quoteForCmd, tmuxExec, } from './tmux-utils.js';
 import { configureTmuxClipboardForCurrentSession, configureTmuxClipboardForSession } from './tmux-clipboard.js';
 import { OMC_PLUGIN_ROOT_ENV } from '../lib/env-vars.js';
@@ -286,7 +286,7 @@ function compareOnboardingVersion(left, right) {
     }
     return 0;
 }
-function refreshRuntimeClaudeJson(baseConfigDir, runtimeClaudeJsonPath, sourceClaudeJson = readJsonObject(join(dirname(baseConfigDir), '.claude.json'))) {
+function refreshRuntimeClaudeJson(baseConfigDir, runtimeClaudeJsonPath, sourceClaudeJson = readJsonObject(getClaudeStateFilePathFor(baseConfigDir))) {
     if (!sourceClaudeJson)
         return;
     const runtimeClaudeJson = readJsonObject(runtimeClaudeJsonPath) ?? {};
@@ -445,7 +445,7 @@ export function prepareOmcLaunchConfigDir(baseConfigDir = getClaudeConfigDir()) 
     const nextConfigDir = `${runtimeConfigDir}.next`;
     const runtimeClaudeJsonPath = join(runtimeConfigDir, '.claude.json');
     const runtimeCredentialsPath = join(runtimeConfigDir, '.credentials.json');
-    const sourceClaudeJsonPath = join(dirname(baseConfigDir), '.claude.json');
+    const sourceClaudeJsonPath = getClaudeStateFilePathFor(baseConfigDir);
     const lifecycleLockPath = lockPathFor(join(baseConfigDir, '.omc-launch.prepare.lock'));
     return withFileLockSync(lifecycleLockPath, () => {
         const preservedClaudeJson = pathExists(runtimeClaudeJsonPath)

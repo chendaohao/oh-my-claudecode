@@ -68,9 +68,11 @@ describe('installer MCP config ownership (issue #1802)', () => {
         rmSync(tempRoot, { recursive: true, force: true });
         vi.resetModules();
     });
-    it('moves legacy settings.json mcpServers into ~/.claude.json during install', async () => {
+    it('moves legacy settings.json mcpServers into the Claude state file during install', async () => {
         const settingsPath = join(claudeConfigDir, 'settings.json');
-        const claudeRootConfigPath = join(homeDir, '.claude.json');
+        // CLAUDE_CONFIG_DIR is set for this run, so the CLI keeps its state file
+        // inside the config dir rather than beside it.
+        const claudeRootConfigPath = join(claudeConfigDir, '.claude.json');
         const codexConfigPath = join(codexHome, 'config.toml');
         const registryPath = join(omcHome, 'mcp-registry.json');
         writeFileSync(settingsPath, JSON.stringify({

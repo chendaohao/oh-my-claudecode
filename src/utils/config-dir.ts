@@ -12,7 +12,7 @@
  *   scripts/lib/config-dir.sh    — POSIX shell runtime
  */
 
-import { join, normalize, parse, sep } from 'path';
+import { dirname, join, normalize, parse, sep } from 'path';
 import { homedir } from 'os';
 
 /**
@@ -59,6 +59,35 @@ export function getClaudeConfigDir(): string {
  */
 export function getOmcConfigDir(): string {
   return join(getClaudeConfigDir(), '.omc');
+}
+
+/**
+ * Resolve the path of Claude Code's own global state file (`.claude.json`,
+ * holding `mcpServers`, onboarding and account metadata) for a given config dir.
+ *
+ * Claude Code places it in one of two locations, switching on whether
+ * CLAUDE_CONFIG_DIR is set at all — not on whether its value differs from the
+ * default. Verified against the CLI:
+ *
+ *   unset            -> dirname(configDir)/.claude.json   (~/.claude.json)
+ *   set, any value   -> configDir/.claude.json            (X/.claude.json)
+ *
+ * The "set" branch holds even when the value equals the default config dir, so
+ * `CLAUDE_CONFIG_DIR=~/.claude` reads ~/.claude/.claude.json, not ~/.claude.json.
+ * Deriving the location from dirname(configDir) alone is correct only while
+ * CLAUDE_CONFIG_DIR stays unset.
+ */
+export function getClaudeStateFilePathFor(configDir: string): string {
+  const configured = process.env.CLAUDE_CONFIG_DIR?.trim();
+
+  return configured
+    ? join(configDir, '.claude.json')
+    : join(dirname(configDir), '.claude.json');
+}
+
+/** Resolve the active config dir's Claude Code state file path. */
+export function getClaudeStateFilePath(): string {
+  return getClaudeStateFilePathFor(getClaudeConfigDir());
 }
 
 /** Resolve the canonical update-check cache file path. */

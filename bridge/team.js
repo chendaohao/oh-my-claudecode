@@ -9,7 +9,7 @@ var __export = (target, all) => {
 };
 
 // src/utils/config-dir.ts
-import { join, normalize, parse, sep } from "path";
+import { dirname, join, normalize, parse, sep } from "path";
 import { homedir } from "os";
 function stripTrailingSep(p) {
   if (!p.endsWith(sep)) {
@@ -50,7 +50,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { execFileSync } from "child_process";
 import { closeSync, existsSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, readdirSync, writeFileSync, unlinkSync, statSync } from "fs";
 import { homedir as homedir2, tmpdir } from "os";
-import { resolve, normalize as normalize2, relative, sep as sep2, join as join2, isAbsolute, basename, dirname } from "path";
+import { resolve, normalize as normalize2, relative, sep as sep2, join as join2, isAbsolute, basename, dirname as dirname2 } from "path";
 import { pathToFileURL } from "url";
 function gitProbeEnvironmentSignature() {
   const fixedEntries = GIT_PROBE_ENVIRONMENT_KEYS.map((key) => JSON.stringify([key, process.env[key] !== void 0, process.env[key] ?? ""]));
@@ -87,7 +87,7 @@ function findWorkspaceRoot(startDir) {
       result = cursor;
       break;
     }
-    const parent = dirname(cursor);
+    const parent = dirname2(cursor);
     if (parent === cursor) break;
     cursor = parent;
   }
@@ -193,7 +193,7 @@ function sensitiveAbsoluteRoots() {
   return roots;
 }
 function isFilesystemRoot(dir) {
-  return dirname(dir) === dir;
+  return dirname2(dir) === dir;
 }
 function isWithinPath(ancestor, candidate) {
   const rel = relative(ancestor, candidate);
@@ -230,7 +230,7 @@ function isSensitiveStateLocation(dir) {
     if (name.startsWith(".") && name !== OmcPaths.ROOT) return true;
     if (SENSITIVE_DIR_BASENAMES.has(lowerName)) return true;
     if (isFilesystemRoot(cursor)) break;
-    cursor = dirname(cursor);
+    cursor = dirname2(cursor);
   }
   if (candidate === "/tmp" || candidate === "/private/tmp") return true;
   if (isFilesystemRoot(candidate)) return true;
@@ -359,7 +359,7 @@ function findGitMetadataDir(start) {
     if (existsSync(join2(current, ".git"))) {
       return current;
     }
-    const parent = dirname(current);
+    const parent = dirname2(current);
     if (parent === current) {
       return null;
     }
@@ -604,7 +604,7 @@ function getGitTopologySignature(cwd) {
         commonGitDirectorySignature(metadataReal)
       ].join(":"));
     }
-    const parent = dirname(cursor);
+    const parent = dirname2(cursor);
     if (parent === cursor) break;
     cursor = parent;
   }
@@ -765,7 +765,7 @@ function getProjectIdentifier(worktreeRoot) {
     const isGitDir = basename(commonDir) === ".git";
     const isSubmodule = commonDir.includes(`${sep2}.git${sep2}modules`);
     if (isGitDir && !isSubmodule) {
-      const resolved = dirname(commonDir);
+      const resolved = dirname2(commonDir);
       if (resolved && resolved !== root) {
         primaryRoot = resolved;
       }
@@ -1020,7 +1020,7 @@ var init_worktree_paths = __esm({
 import { createHash as createHash2 } from "node:crypto";
 import { lstatSync as lstatSync2, readlinkSync, realpathSync as realpathSync2 } from "node:fs";
 import { lstat } from "node:fs/promises";
-import { basename as basename2, dirname as dirname2, isAbsolute as isAbsolute2, join as join3, relative as relative2, resolve as resolve2, sep as sep3 } from "path";
+import { basename as basename2, dirname as dirname3, isAbsolute as isAbsolute2, join as join3, relative as relative2, resolve as resolve2, sep as sep3 } from "path";
 function normalizeTaskFileStem(taskId) {
   const trimmed = String(taskId).trim().replace(/\.json$/i, "");
   if (/^task-\d+$/.test(trimmed)) return trimmed;
@@ -1049,7 +1049,7 @@ function canonicalStoragePath(path4) {
       if (stat2.isSymbolicLink()) {
         if (visitedLinks.has(cursor)) throw new Error("team_storage_anchor_symlink_cycle");
         visitedLinks.add(cursor);
-        cursor = resolve2(dirname2(cursor), readlinkSync(cursor));
+        cursor = resolve2(dirname3(cursor), readlinkSync(cursor));
         continue;
       }
       const canonical = (() => {
@@ -1062,7 +1062,7 @@ function canonicalStoragePath(path4) {
       return missingSuffix.length === 0 ? canonical : join3(canonical, ...missingSuffix.reverse());
     } catch (error) {
       if (error instanceof Error && error.message === "team_storage_anchor_symlink_cycle") throw error;
-      const parent = dirname2(cursor);
+      const parent = dirname3(cursor);
       if (parent === cursor) return resolve2(path4);
       missingSuffix.push(basename2(cursor));
       cursor = parent;
@@ -1432,11 +1432,11 @@ var init_types2 = __esm({
 // src/graph/runtime/native-contained-fs.ts
 import { existsSync as existsSync2, readFileSync as readFileSync2 } from "node:fs";
 import { createRequire } from "node:module";
-import { dirname as dirname3, join as join4 } from "node:path";
+import { dirname as dirname4, join as join4 } from "node:path";
 import { fileURLToPath } from "node:url";
 function getNativeContainedFs() {
   if (loaded) return loaded;
-  let directory = dirname3(fileURLToPath(import.meta.url));
+  let directory = dirname4(fileURLToPath(import.meta.url));
   for (; ; ) {
     const manifest = join4(directory, "package.json");
     if (existsSync2(manifest)) {
@@ -1451,7 +1451,7 @@ function getNativeContainedFs() {
         }
       }
     }
-    const parent = dirname3(directory);
+    const parent = dirname4(directory);
     if (parent === directory) throw new Error("Cannot locate the OMC package for the contained filesystem backend");
     directory = parent;
   }
@@ -1466,7 +1466,7 @@ var init_native_contained_fs = __esm({
 // src/team/team-owner-epoch.ts
 import { createHash as createHash3, randomUUID } from "crypto";
 import { existsSync as existsSync3, linkSync, mkdirSync as mkdirSync2, readFileSync as readFileSync3, readdirSync as readdirSync2, unlinkSync as unlinkSync2, writeFileSync as writeFileSync2 } from "fs";
-import { dirname as dirname4, join as join5 } from "path";
+import { dirname as dirname5, join as join5 } from "path";
 import { execFileSync as execFileSync2 } from "node:child_process";
 function canonicalize(value) {
   if (value === null || typeof value !== "object") return JSON.stringify(value);
@@ -1641,7 +1641,7 @@ function readLatestOwnerEpoch(cwd, teamName) {
 function publishOwnerEpoch(cwd, teamName, epoch, input = {}) {
   if (!Number.isSafeInteger(epoch) || epoch < 1) throw new Error("invalid_owner_epoch");
   const target = absPath(cwd, TeamPaths.ownerEpoch(teamName, epoch));
-  mkdirSync2(dirname4(target), { recursive: true, mode: 448 });
+  mkdirSync2(dirname5(target), { recursive: true, mode: 448 });
   const start = input.processStartedAt ?? currentProcessStartIdentity(input.pid ?? process.pid);
   if (!isValidProcessStartIdentity(start)) throw new Error("process_start_identity_unavailable");
   const unsigned = {
@@ -1655,7 +1655,7 @@ function publishOwnerEpoch(cwd, teamName, epoch, input = {}) {
   };
   const bytes = recordBytes(unsigned);
   const record = JSON.parse(bytes);
-  const temp = join5(dirname4(target), `.${epoch}.${record.nonce}.${randomUUID()}.tmp`);
+  const temp = join5(dirname5(target), `.${epoch}.${record.nonce}.${randomUUID()}.tmp`);
   writeFileSync2(temp, bytes, { encoding: "utf8", mode: 384, flush: true });
   try {
     linkSync(temp, target);
@@ -1706,7 +1706,7 @@ var init_team_owner_epoch = __esm({
 
 // src/team/process-identity-lock.ts
 import { linkSync as linkSync2, mkdirSync as mkdirSync3, readFileSync as readFileSync4, unlinkSync as unlinkSync3, writeFileSync as writeFileSync3 } from "node:fs";
-import { dirname as dirname5 } from "node:path";
+import { dirname as dirname6 } from "node:path";
 import { randomUUID as randomUUID2 } from "node:crypto";
 function readLock(path4) {
   try {
@@ -1718,7 +1718,7 @@ function readLock(path4) {
 }
 async function withProcessIdentityFileLock(lockPath, fn, timeoutMs = 1e4) {
   const reclaimPath = `${lockPath}.reclaim`;
-  mkdirSync3(dirname5(lockPath), { recursive: true, mode: 448 });
+  mkdirSync3(dirname6(lockPath), { recursive: true, mode: 448 });
   const processStartedAt = currentProcessStartIdentity();
   if (!processStartedAt) throw new Error("process_start_identity_unavailable");
   const owner = {
@@ -1790,7 +1790,7 @@ async function withProcessIdentityFileLock(lockPath, fn, timeoutMs = 1e4) {
 }
 function withProcessIdentityFileLockSync(lockPath, fn) {
   const reclaimPath = `${lockPath}.reclaim`;
-  mkdirSync3(dirname5(lockPath), { recursive: true, mode: 448 });
+  mkdirSync3(dirname6(lockPath), { recursive: true, mode: 448 });
   const processStartedAt = currentProcessStartIdentity();
   if (!processStartedAt) throw new Error("process_start_identity_unavailable");
   const owner = {
@@ -1953,7 +1953,7 @@ var init_worker_canonicalization = __esm({
 // src/team/team-instance.ts
 import { randomUUID as randomUUID3 } from "node:crypto";
 import { lstat as lstat2, mkdir, readFile, readdir, rename, rm, unlink, writeFile } from "node:fs/promises";
-import { basename as basename3, dirname as dirname6, join as join6, resolve as resolve3 } from "node:path";
+import { basename as basename3, dirname as dirname7, join as join6, resolve as resolve3 } from "node:path";
 function fail(code, message = code) {
   throw new TeamInstanceError(code, message);
 }
@@ -2072,7 +2072,7 @@ async function pathKind(path4) {
 }
 async function defaultPublish(path4, value) {
   const bytes = JSON.stringify(value, null, 2);
-  await mkdir(dirname6(path4), { recursive: true, mode: 448 });
+  await mkdir(dirname7(path4), { recursive: true, mode: 448 });
   const tempPath = `${path4}.tmp.${process.pid}.${randomUUID3()}`;
   try {
     await writeFile(tempPath, bytes, { encoding: "utf8", mode: 384, flag: "wx" });
@@ -2123,7 +2123,7 @@ async function publishCleanupReceipt(record, io, path4 = record.receipt_path) {
   }
 }
 async function publishInitialCleanupReceipt(record, io) {
-  const cleanupRoot = dirname6(record.receipt_path);
+  const cleanupRoot = dirname7(record.receipt_path);
   const stagingRoot = `${cleanupRoot}.staging-${process.pid}-${randomUUID3()}`;
   let published = false;
   try {
@@ -2187,7 +2187,7 @@ async function hasHistoricalCleanupAuthority(binding) {
   const root = expectedPaths(binding).cleanupRoot;
   const kind = await pathKind(root);
   if (kind !== "missing") return true;
-  const parent = dirname6(root);
+  const parent = dirname7(root);
   try {
     const entries = await readdir(parent);
     return entries.some((entry) => entry.startsWith(`${basename3(root)}.staging-`));
@@ -2447,7 +2447,7 @@ async function renameIntoDetachedRoot(binding, options) {
   if (sourceKind === "missing" && destinationKind !== "missing") return;
   if (sourceKind !== "directory") fail("team_instance_state_corrupt", "team_state_root_not_directory");
   if (destinationKind !== "missing") fail("team_instance_cleanup_inconsistent", "both_state_and_detached_roots_exist");
-  await mkdir(dirname6(paths.detached), { recursive: true, mode: 448 });
+  await mkdir(dirname7(paths.detached), { recursive: true, mode: 448 });
   try {
     if (options.io?.renameStateRoot) await options.io.renameStateRoot(binding.state_root, paths.detached);
     else await rename(binding.state_root, paths.detached);
@@ -2644,7 +2644,7 @@ var init_team_instance = __esm({
 import { existsSync as existsSync4 } from "fs";
 import { readFile as readFile2, mkdir as mkdir2, rm as rm2, writeFile as writeFile2, rename as rename2 } from "fs/promises";
 import { randomUUID as randomUUID4 } from "node:crypto";
-import { dirname as dirname7 } from "path";
+import { dirname as dirname8 } from "path";
 async function readJsonSafe(filePath) {
   try {
     if (!existsSync4(filePath)) return null;
@@ -2662,7 +2662,7 @@ async function readJsonFileState(filePath) {
   }
 }
 async function writeAtomic(filePath, data) {
-  await mkdir2(dirname7(filePath), { recursive: true });
+  await mkdir2(dirname8(filePath), { recursive: true });
   const tmpPath = `${filePath}.${process.pid}.${randomUUID4()}.tmp`;
   try {
     await writeFile2(tmpPath, data, "utf-8");
@@ -3728,7 +3728,7 @@ var init_tasks = __esm({
 import { createHash as createHash4 } from "node:crypto";
 import { existsSync as existsSync5 } from "node:fs";
 import { link, mkdir as mkdir3, open, readFile as readFile4, readdir as readdir3, rename as rename3, unlink as unlink2 } from "node:fs/promises";
-import { basename as basename4, dirname as dirname8 } from "node:path";
+import { basename as basename4, dirname as dirname9 } from "node:path";
 function canonicalJson(value) {
   const seen = /* @__PURE__ */ new Set();
   const normalize4 = (current) => {
@@ -3770,7 +3770,7 @@ function latestPath(cwd, teamName, taskId, claimToken) {
 }
 async function syncDirectory(path4) {
   if (process.platform === "win32") return;
-  const directory = await open(dirname8(path4), "r");
+  const directory = await open(dirname9(path4), "r");
   try {
     await directory.sync();
   } finally {
@@ -3778,7 +3778,7 @@ async function syncDirectory(path4) {
   }
 }
 async function writeAtomic2(path4, content) {
-  await mkdir3(dirname8(path4), { recursive: true });
+  await mkdir3(dirname9(path4), { recursive: true });
   const temp = `${path4}.${process.pid}.${Date.now()}.tmp`;
   const handle = await open(temp, "wx", 384);
   try {
@@ -3791,7 +3791,7 @@ async function writeAtomic2(path4, content) {
   await syncDirectory(path4);
 }
 async function publishImmutableCheckpoint(path4, content) {
-  await mkdir3(dirname8(path4), { recursive: true });
+  await mkdir3(dirname9(path4), { recursive: true });
   const temp = `${path4}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`;
   const handle = await open(temp, "wx", 384);
   try {
@@ -3986,7 +3986,7 @@ __export(team_ops_exports, {
 import { createHash as createHash5, randomUUID as randomUUID6 } from "node:crypto";
 import { existsSync as existsSync6 } from "node:fs";
 import { appendFile, lstat as lstat4, mkdir as mkdir4, readFile as readFile5, rm as rm3, writeFile as writeFile3 } from "node:fs/promises";
-import { dirname as dirname9, join as join8 } from "node:path";
+import { dirname as dirname10, join as join8 } from "node:path";
 function teamDir(teamName, cwd) {
   return absPath(cwd, TeamPaths.root(teamName));
 }
@@ -4011,7 +4011,7 @@ function taskFileCandidates(teamName, taskId, cwd) {
 }
 async function writeAtomic3(path4, data) {
   const tmp = `${path4}.${process.pid}.${randomUUID6()}.tmp`;
-  await mkdir4(dirname9(path4), { recursive: true });
+  await mkdir4(dirname10(path4), { recursive: true });
   try {
     await writeFile3(tmp, data, "utf8");
     const { rename: rename7 } = await import("node:fs/promises");
@@ -4271,7 +4271,7 @@ async function teamCreateTask(teamName, task, cwd) {
       const serializedTask = JSON.stringify(normalized, null, 2);
       const createdTaskPath = canonicalTaskFilePath(teamName, nextId, cwd);
       const taskLock = await withTaskClaimLock(teamName, nextId, cwd, async () => {
-        await mkdir4(dirname9(createdTaskPath), { recursive: true });
+        await mkdir4(dirname10(createdTaskPath), { recursive: true });
         await writeAtomic3(createdTaskPath, serializedTask);
         const nextConfig = {
           ...revisioned.config,
@@ -4668,7 +4668,7 @@ async function teamAppendEvent(teamName, event, cwd) {
     ...event
   };
   const p = absPath(cwd, TeamPaths.events(teamName));
-  await mkdir4(dirname9(p), { recursive: true });
+  await mkdir4(dirname10(p), { recursive: true });
   await appendFile(p, `${JSON.stringify(full)}
 `, "utf8");
   return full;
@@ -4869,9 +4869,9 @@ var init_team_ops = __esm({
 
 // src/team/fs-utils.ts
 import { writeFileSync as writeFileSync4, existsSync as existsSync7, mkdirSync as mkdirSync4, renameSync, openSync as openSync2, writeSync, closeSync as closeSync2, realpathSync as realpathSync3, constants } from "fs";
-import { dirname as dirname10, resolve as resolve4, relative as relative3, basename as basename5, join as join9 } from "path";
+import { dirname as dirname11, resolve as resolve4, relative as relative3, basename as basename5, join as join9 } from "path";
 function atomicWriteJson(filePath, data, mode = 384) {
-  const dir = dirname10(filePath);
+  const dir = dirname11(filePath);
   if (!existsSync7(dir)) mkdirSync4(dir, { recursive: true, mode: 448 });
   const tmpPath = `${filePath}.tmp.${process.pid}.${Date.now()}`;
   writeFileSync4(tmpPath, JSON.stringify(data, null, 2) + "\n", { encoding: "utf-8", mode });
@@ -4888,7 +4888,7 @@ function safeRealpath(p) {
     let current = resolve4(p);
     while (!existsSync7(current)) {
       segments.unshift(basename5(current));
-      const parent = dirname10(current);
+      const parent = dirname11(current);
       if (parent === current) break;
       current = parent;
     }
@@ -4917,7 +4917,7 @@ var init_fs_utils = __esm({
 import { randomUUID as randomUUID7 } from "crypto";
 import { existsSync as existsSync8 } from "fs";
 import { mkdir as mkdir5, readFile as readFile6, rm as rm4, stat, writeFile as writeFile4 } from "fs/promises";
-import { dirname as dirname11, join as join10 } from "path";
+import { dirname as dirname12, join as join10 } from "path";
 function validateWorkerName(name) {
   if (!WORKER_NAME_SAFE_PATTERN.test(name)) {
     throw new Error(`Invalid worker name: "${name}"`);
@@ -4960,7 +4960,7 @@ async function withDispatchLock(teamName, cwd, fn) {
   const timeoutMs = resolveDispatchLockTimeoutMs(process.env);
   const deadline = Date.now() + timeoutMs;
   let pollMs = DISPATCH_LOCK_INITIAL_POLL_MS;
-  await mkdir5(dirname11(lockDir), { recursive: true });
+  await mkdir5(dirname12(lockDir), { recursive: true });
   while (true) {
     try {
       await mkdir5(lockDir, { recursive: false });
@@ -5018,7 +5018,7 @@ async function readDispatchRequestsFromFile(teamName, cwd) {
 }
 async function writeDispatchRequestsToFile(teamName, requests, cwd) {
   const path4 = absPath(cwd, TeamPaths.dispatchRequests(teamName));
-  const dir = dirname11(path4);
+  const dir = dirname12(path4);
   ensureDirWithMode(dir);
   atomicWriteJson(path4, requests);
 }
@@ -6423,7 +6423,7 @@ var init_cache_occupancy = __esm({
 });
 
 // src/utils/plugin-cache-validation.ts
-import { basename as basename8, dirname as dirname14, isAbsolute as isAbsolute4, join as join13, parse as parse3, resolve as resolve6 } from "path";
+import { basename as basename8, dirname as dirname15, isAbsolute as isAbsolute4, join as join13, parse as parse3, resolve as resolve6 } from "path";
 import { existsSync as existsSync10, lstatSync as lstatSync5, readFileSync as readFileSync9, readlinkSync as readlinkSync2, readdirSync as readdirSync4, statSync as statSync3 } from "fs";
 var PLUGIN_ROOT_REQUIREMENTS;
 var init_plugin_cache_validation = __esm({
@@ -6434,7 +6434,7 @@ var init_plugin_cache_validation = __esm({
 });
 
 // src/utils/paths.ts
-import { join as join14, dirname as dirname15 } from "path";
+import { join as join14, dirname as dirname16 } from "path";
 import { existsSync as existsSync11, readFileSync as readFileSync10, readdirSync as readdirSync5, statSync as statSync4, lstatSync as lstatSync6, realpathSync as realpathSync4, unlinkSync as unlinkSync7, rmSync, renameSync as renameSync3, symlinkSync } from "fs";
 import { homedir as homedir3 } from "os";
 function getConfigDir() {
@@ -6503,7 +6503,7 @@ var init_host_load_gate = __esm({
 import { createHash as createHash7, randomUUID as randomUUID10 } from "node:crypto";
 import { constants as constants3, existsSync as existsSync13 } from "node:fs";
 import { link as link2, lstat as lstat5, mkdir as mkdir7, mkdtemp, open as open3, readFile as readFile9, rm as rm6, unlink as unlink4, writeFile as writeFile6 } from "node:fs/promises";
-import { dirname as dirname16, isAbsolute as isAbsolute5, join as join16, relative as relative4, resolve as resolve7, sep as sep4 } from "node:path";
+import { dirname as dirname17, isAbsolute as isAbsolute5, join as join16, relative as relative4, resolve as resolve7, sep as sep4 } from "node:path";
 import { tmpdir as tmpdir2 } from "node:os";
 function buildWindowsSupervisorSource() {
   return [
@@ -6665,7 +6665,7 @@ async function isCurrentLaunchIdentity(currentPath, identity) {
   return current.kind === "value" && identityMatches(current.value, identity);
 }
 async function writeExclusiveAtomic(path4, value) {
-  await mkdir7(dirname16(path4), { recursive: true });
+  await mkdir7(dirname17(path4), { recursive: true });
   const candidate = `${path4}.candidate.${process.pid}.${randomUUID10()}`;
   const handle = await open3(candidate, "wx", 384);
   try {
@@ -6681,7 +6681,7 @@ async function writeExclusiveAtomic(path4, value) {
   }
 }
 async function writeExclusiveTextAtomic(path4, value) {
-  await mkdir7(dirname16(path4), { recursive: true });
+  await mkdir7(dirname17(path4), { recursive: true });
   const candidate = `${path4}.candidate.${process.pid}.${randomUUID10()}`;
   const handle = await open3(candidate, "wx", 384);
   try {
@@ -6828,7 +6828,7 @@ function buildWorkerLaunchBootstrapSpec(attempt, providerArgv, cwd, options = {}
   };
 }
 function attemptTransportPathsAreDeterministic(attempt) {
-  const expectedRoot = dirname16(attempt.expectedPath);
+  const expectedRoot = dirname17(attempt.expectedPath);
   return isDeterministicTransportPath(attempt.expectedPath, attempt.transportOwnerPath, "transport-owner.json") && isDeterministicTransportPath(attempt.expectedPath, attempt.bootstrapDescriptorPath, WORKER_LAUNCH_BOOTSTRAP_DESCRIPTOR_FILE) && isDeterministicTransportPath(attempt.expectedPath, attempt.wrapperPath, "launch.cmd") && isDeterministicTransportPath(attempt.expectedPath, attempt.transportCleanupCompletePath, "transport-cleanup-complete.json") && resolve7(attempt.expectedPath) === resolve7(join16(expectedRoot, "expected.json"));
 }
 function transportOwnerMatches(value, attempt, authorityDigest) {
@@ -7214,11 +7214,11 @@ async function readWorkerLaunchProviderCompletionState(attempt, started) {
   const absoluteCompletionPath = resolve7(started.supervisor_completion_path);
   const trustedTempRoot = resolve7(tmpdir2());
   const pathParts = [];
-  let pathPart = dirname16(absoluteCompletionPath);
+  let pathPart = dirname17(absoluteCompletionPath);
   if (absoluteCompletionPath === trustedTempRoot || absoluteCompletionPath.startsWith(`${trustedTempRoot}${sep4}`)) {
-    while (pathPart !== trustedTempRoot && pathPart !== dirname16(pathPart)) {
+    while (pathPart !== trustedTempRoot && pathPart !== dirname17(pathPart)) {
       pathParts.push(pathPart);
-      pathPart = dirname16(pathPart);
+      pathPart = dirname17(pathPart);
     }
   } else {
     pathParts.push(pathPart);
@@ -7527,7 +7527,7 @@ async function isWorkerLaunchProviderStarted(attempt) {
   return await readValidProviderStarted(attempt) !== null;
 }
 function isDeterministicTransportPath(expectedPath, candidate, fileName) {
-  return isExactText(candidate) && resolve7(candidate) === resolve7(join16(dirname16(expectedPath), fileName));
+  return isExactText(candidate) && resolve7(candidate) === resolve7(join16(dirname17(expectedPath), fileName));
 }
 function quoteWindowsCmdArgument(value) {
   if (/[\r\n]/.test(value)) throw new Error("worker_launch_provider_argv_invalid");
@@ -7567,7 +7567,7 @@ var init_worker_launch_ack = __esm({
 // src/team/recovery-request-store.ts
 import { createHash as createHash8, randomUUID as randomUUID11 } from "crypto";
 import { existsSync as existsSync14, linkSync as linkSync4, mkdirSync as mkdirSync6, readFileSync as readFileSync11, readdirSync as readdirSync7, renameSync as renameSync4, unlinkSync as unlinkSync8, writeFileSync as writeFileSync5 } from "fs";
-import { dirname as dirname17, join as join17 } from "path";
+import { dirname as dirname18, join as join17 } from "path";
 function isSafeRecoveryRequestId(requestId) {
   return requestId.length > 0 && requestId.length <= 128 && requestId !== "." && requestId !== ".." && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(requestId);
 }
@@ -7603,12 +7603,12 @@ function finalPath(cwd, requestId) {
 }
 function phaseDirectory(cwd, requestId) {
   assertSafeRecoveryRequestId(requestId);
-  return join17(dirname17(reservationPath(cwd, requestId)), "phases", requestId);
+  return join17(dirname18(reservationPath(cwd, requestId)), "phases", requestId);
 }
 function publishImmutable(target, value) {
   const bytes = canonicalize2(value);
-  mkdirSync6(dirname17(target), { recursive: true, mode: 448 });
-  const temp = join17(dirname17(target), `.${randomUUID11()}.tmp`);
+  mkdirSync6(dirname18(target), { recursive: true, mode: 448 });
+  const temp = join17(dirname18(target), `.${randomUUID11()}.tmp`);
   writeFileSync5(temp, bytes, { encoding: "utf8", mode: 384, flush: true });
   try {
     linkSync4(temp, target);
@@ -7628,8 +7628,8 @@ function publishImmutable(target, value) {
 }
 function replaceDerivedIndex(target, value) {
   const bytes = canonicalize2(value);
-  mkdirSync6(dirname17(target), { recursive: true, mode: 448 });
-  const temp = join17(dirname17(target), `.${randomUUID11()}.repair.tmp`);
+  mkdirSync6(dirname18(target), { recursive: true, mode: 448 });
+  const temp = join17(dirname18(target), `.${randomUUID11()}.repair.tmp`);
   writeFileSync5(temp, bytes, { encoding: "utf8", mode: 384, flush: true });
   try {
     renameSync4(temp, target);
@@ -7928,7 +7928,7 @@ import { spawn } from "node:child_process";
 import { createHash as createHash9, randomUUID as randomUUID12 } from "node:crypto";
 import { existsSync as existsSync15, readdirSync as readdirSync8, readFileSync as readFileSync12 } from "node:fs";
 import { link as link3, mkdir as mkdir8, open as open4, readFile as readFile10, unlink as unlink5 } from "node:fs/promises";
-import { basename as basename9, dirname as dirname18, join as join18 } from "node:path";
+import { basename as basename9, dirname as dirname19, join as join18 } from "node:path";
 function workspaceHash(cwd) {
   return createHash9("sha256").update(cwd).digest("hex");
 }
@@ -8003,7 +8003,7 @@ function recoveryOwnerBootstrapCandidatePath(cwd, teamName, expectedEpoch, nonce
   return absPath(cwd, TeamPaths.recoveryOwnerBootstrapCandidate(teamName, expectedEpoch, nonce));
 }
 async function syncParentDirectory(path4) {
-  const directory = await open4(dirname18(path4), "r");
+  const directory = await open4(dirname19(path4), "r");
   try {
     await directory.sync();
   } finally {
@@ -8039,7 +8039,7 @@ async function publishRecoveryOwnerBootstrapCandidate(input, recoveryId, expecte
     payload_hash: createHash9("sha256").update(canonicalBootstrapCandidate(unsigned)).digest("hex")
   };
   const path4 = recoveryOwnerBootstrapCandidatePath(input.cwd, input.teamName, expectedEpoch, nonce);
-  await mkdir8(dirname18(path4), { recursive: true, mode: 448 });
+  await mkdir8(dirname19(path4), { recursive: true, mode: 448 });
   const temporary = `${path4}.${process.pid}.${randomUUID12()}.candidate`;
   const handle = await open4(temporary, "wx", 384);
   try {
@@ -8067,8 +8067,8 @@ async function publishRecoveryOwnerBootstrapCandidate(input, recoveryId, expecte
   }
 }
 function hasLiveOrUnknownBootstrapCandidate(input, recoveryId, expectedEpoch, predecessor) {
-  const candidateDirectory = dirname18(recoveryOwnerBootstrapCandidatePath(input.cwd, input.teamName, expectedEpoch, "candidate"));
-  const legacyCandidate = join18(dirname18(candidateDirectory), `${expectedEpoch}.json`);
+  const candidateDirectory = dirname19(recoveryOwnerBootstrapCandidatePath(input.cwd, input.teamName, expectedEpoch, "candidate"));
+  const legacyCandidate = join18(dirname19(candidateDirectory), `${expectedEpoch}.json`);
   if (existsSync15(legacyCandidate)) return true;
   let entries;
   try {
@@ -8158,7 +8158,7 @@ async function publishIntent(input, recoveryId) {
     instance_id: intentPayload.instanceId,
     created_at: (/* @__PURE__ */ new Date()).toISOString()
   };
-  await mkdir8(dirname18(path4), { recursive: true, mode: 448 });
+  await mkdir8(dirname19(path4), { recursive: true, mode: 448 });
   const candidate = `${path4}.candidate.${process.pid}.${randomUUID12()}`;
   const candidateHandle = await open4(candidate, "wx", 384);
   try {
@@ -8641,7 +8641,7 @@ import { existsSync as existsSync16, mkdtempSync, rmSync as rmSync2, statSync as
 import { createHash as createHash10, randomUUID as randomUUID13 } from "crypto";
 import { execFile as execFile3 } from "child_process";
 import { promisify as promisify3 } from "util";
-import { join as join19, basename as basename10, dirname as dirname19, isAbsolute as isAbsolute6, win32 } from "path";
+import { join as join19, basename as basename10, dirname as dirname20, isAbsolute as isAbsolute6, win32 } from "path";
 import { tmpdir as tmpdir3 } from "os";
 function tmuxArgsForIdentity(identity, args) {
   return ["-S", identity.socket_path, ...args];
@@ -9604,7 +9604,7 @@ function writePaneEnvFile(values) {
 }
 function discardPaneEnvFile(envFile) {
   if (!envFile) return;
-  rmSync2(dirname19(envFile), { recursive: true, force: true });
+  rmSync2(dirname20(envFile), { recursive: true, force: true });
 }
 function workerPaneShellCommand() {
   if (process.platform === "win32" && !isUnixLikeOnWindows2()) {
@@ -11795,7 +11795,7 @@ var init_tmux_session = __esm({
 
 // src/team/mcp-comm.ts
 import { realpathSync as realpathSync5 } from "node:fs";
-import { basename as basename11, dirname as dirname20, join as join20 } from "node:path";
+import { basename as basename11, dirname as dirname21, join as join20 } from "node:path";
 function isConfirmedNotification(outcome) {
   if (!outcome.ok) return false;
   if (outcome.transport !== "hook") return true;
@@ -11821,7 +11821,7 @@ function canonicalNotificationLockIdentity(lockPath) {
     return realpathSync5(lockPath);
   } catch {
     try {
-      return join20(realpathSync5(dirname20(lockPath)), basename11(lockPath));
+      return join20(realpathSync5(dirname21(lockPath)), basename11(lockPath));
     } catch {
       return lockPath;
     }
@@ -12287,12 +12287,12 @@ var init_mcp_comm = __esm({
 
 // src/agents/utils.ts
 import { readFileSync as readFileSync13 } from "fs";
-import { join as join21, dirname as dirname21, basename as basename12, resolve as resolve8, relative as relative5, isAbsolute as isAbsolute7 } from "path";
+import { join as join21, dirname as dirname22, basename as basename12, resolve as resolve8, relative as relative5, isAbsolute as isAbsolute7 } from "path";
 import { fileURLToPath as fileURLToPath2 } from "url";
 function getPackageDir() {
   if (typeof __dirname !== "undefined" && __dirname) {
     const currentDirName = basename12(__dirname);
-    const parentDirName = basename12(dirname21(__dirname));
+    const parentDirName = basename12(dirname22(__dirname));
     if (currentDirName === "bridge") {
       return join21(__dirname, "..");
     }
@@ -12302,7 +12302,7 @@ function getPackageDir() {
   }
   try {
     const __filename = fileURLToPath2(import.meta.url);
-    const __dirname2 = dirname21(__filename);
+    const __dirname2 = dirname22(__filename);
     const currentDirName = basename12(__dirname2);
     if (currentDirName === "bridge") {
       return join21(__dirname2, "..");
@@ -12369,12 +12369,12 @@ var init_skininthegamebros_guidance = __esm({
 
 // src/agents/prompt-helpers.ts
 import { readdirSync as readdirSync9 } from "fs";
-import { join as join22, dirname as dirname22, basename as basename13 } from "path";
+import { join as join22, dirname as dirname23, basename as basename13 } from "path";
 import { fileURLToPath as fileURLToPath3 } from "url";
 function getPackageDir2() {
   if (typeof __dirname !== "undefined" && __dirname) {
     const currentDirName = basename13(__dirname);
-    const parentDirName = basename13(dirname22(__dirname));
+    const parentDirName = basename13(dirname23(__dirname));
     if (currentDirName === "bridge") {
       return join22(__dirname, "..");
     }
@@ -12384,7 +12384,7 @@ function getPackageDir2() {
   }
   try {
     const __filename = fileURLToPath3(import.meta.url);
-    const __dirname2 = dirname22(__filename);
+    const __dirname2 = dirname23(__filename);
     const currentDirName = basename13(__dirname2);
     if (currentDirName === "bridge") {
       return join22(__dirname2, "..");
@@ -12936,7 +12936,7 @@ var init_delegation_routing = __esm({
 
 // src/config/loader.ts
 import { readFileSync as readFileSync14, existsSync as existsSync17 } from "fs";
-import { join as join23, dirname as dirname23 } from "path";
+import { join as join23, dirname as dirname24 } from "path";
 function buildDefaultConfig() {
   const defaultTierModels = getDefaultTierModels();
   return {
@@ -14223,7 +14223,7 @@ var init_skill_pipeline = __esm({
 
 // src/utils/skill-resources.ts
 import { existsSync as existsSync18, readdirSync as readdirSync10 } from "fs";
-import { dirname as dirname24, relative as relative6 } from "path";
+import { dirname as dirname25, relative as relative6 } from "path";
 var init_skill_resources = __esm({
   "src/utils/skill-resources.ts"() {
     "use strict";
@@ -14251,13 +14251,13 @@ var init_builtin_skill_entitlements = __esm({
 
 // src/features/builtin-skills/skills.ts
 import { existsSync as existsSync19, readdirSync as readdirSync11, readFileSync as readFileSync15 } from "fs";
-import { join as join24, dirname as dirname25, basename as basename14, resolve as resolve9, relative as relative7, isAbsolute as isAbsolute8, win32 as win322 } from "path";
+import { join as join24, dirname as dirname26, basename as basename14, resolve as resolve9, relative as relative7, isAbsolute as isAbsolute8, win32 as win322 } from "path";
 import { fileURLToPath as fileURLToPath4 } from "url";
 function getPackageDir3() {
   if (typeof __dirname !== "undefined" && __dirname) {
     const currentDirName = basename14(__dirname);
-    const parentDirName = basename14(dirname25(__dirname));
-    const grandparentDirName = basename14(dirname25(dirname25(__dirname)));
+    const parentDirName = basename14(dirname26(__dirname));
+    const grandparentDirName = basename14(dirname26(dirname26(__dirname)));
     if (currentDirName === "bridge") {
       return join24(__dirname, "..");
     }
@@ -14267,7 +14267,7 @@ function getPackageDir3() {
   }
   try {
     const __filename = fileURLToPath4(import.meta.url);
-    const __dirname2 = dirname25(__filename);
+    const __dirname2 = dirname26(__filename);
     return join24(__dirname2, "..", "..", "..");
   } catch {
     return process.cwd();
@@ -15111,7 +15111,7 @@ var init_model_contract = __esm({
 
 // src/team/worker-bootstrap.ts
 import { mkdir as mkdir9, writeFile as writeFile7, appendFile as appendFile2 } from "fs/promises";
-import { join as join27, dirname as dirname26 } from "path";
+import { join as join27, dirname as dirname27 } from "path";
 function buildInstructionPath(...parts) {
   return join27(...parts).replaceAll("\\", "/");
 }
@@ -15381,7 +15381,7 @@ ${bootstrapInstructions}
 }
 async function composeInitialInbox(teamName, workerName, content, cwd, cliOutputContract) {
   const inboxPath = join27(teamStateRoot(cwd, sanitizeName(teamName)), "workers", sanitizeName(workerName), "inbox.md");
-  await mkdir9(dirname26(inboxPath), { recursive: true });
+  await mkdir9(dirname27(inboxPath), { recursive: true });
   const finalContent = cliOutputContract && !content.includes(cliOutputContract) ? `${content}
 ${cliOutputContract}` : content;
   await writeFile7(inboxPath, finalContent, "utf-8");
@@ -15391,7 +15391,7 @@ async function appendToInbox(teamName, workerName, message, cwd) {
   const safeWorker = sanitizeName(workerName);
   const inboxPath = join27(teamStateRoot(cwd, safeTeam), "workers", safeWorker, "inbox.md");
   validateResolvedPath(inboxPath, teamStateRoot(cwd, safeTeam));
-  await mkdir9(dirname26(inboxPath), { recursive: true });
+  await mkdir9(dirname27(inboxPath), { recursive: true });
   await appendFile2(inboxPath, `
 
 ---
@@ -15410,7 +15410,7 @@ async function writeWorkerOverlay(params) {
   const { teamName, workerName, cwd } = params;
   const overlay = generateWorkerOverlay(params);
   const overlayPath = join27(teamStateRoot(cwd, sanitizeName(teamName)), "workers", sanitizeName(workerName), "AGENTS.md");
-  await mkdir9(dirname26(overlayPath), { recursive: true });
+  await mkdir9(dirname27(overlayPath), { recursive: true });
   await writeFile7(overlayPath, overlay, "utf-8");
   return overlayPath;
 }
@@ -15610,7 +15610,7 @@ var init_mailbox_outstanding = __esm({
 
 // src/team/events.ts
 import { randomUUID as randomUUID14 } from "crypto";
-import { dirname as dirname27 } from "path";
+import { dirname as dirname28 } from "path";
 import { mkdir as mkdir10, readFile as readFile12, appendFile as appendFile3 } from "fs/promises";
 import { existsSync as existsSync23 } from "fs";
 async function appendTeamEvent(teamName, event, cwd) {
@@ -15621,7 +15621,7 @@ async function appendTeamEvent(teamName, event, cwd) {
     ...event
   };
   const p = absPath(cwd, TeamPaths.events(teamName));
-  await mkdir10(dirname27(p), { recursive: true });
+  await mkdir10(dirname28(p), { recursive: true });
   await appendFile3(p, `${JSON.stringify(full)}
 `, "utf8");
   return full;
@@ -15664,7 +15664,7 @@ async function emitMonitorDerivedEvents(teamName, tasks, workers, previousSnapsh
       }, cwd).catch(logDerivedEventFailure);
     }
     if (prevState === "working" && worker.status.state === "idle") {
-      const mailboxDir = dirname27(absPath(cwd, TeamPaths.mailbox(teamName, worker.name)));
+      const mailboxDir = dirname28(absPath(cwd, TeamPaths.mailbox(teamName, worker.name)));
       const outstanding = await countOutstandingForWorker(mailboxDir, worker.name);
       await appendTeamEvent(teamName, {
         type: "worker_idle",
@@ -16903,7 +16903,7 @@ var init_merge_coordinator = __esm({
 // src/team/leader-inbox.ts
 import { appendFile as appendFile4, mkdir as mkdir11, writeFile as writeFile8 } from "fs/promises";
 import { existsSync as existsSync26 } from "fs";
-import { dirname as dirname28, join as join32 } from "path";
+import { dirname as dirname29, join as join32 } from "path";
 function leaderInboxPath(teamName, cwd) {
   const safe = sanitizeName(teamName);
   return join32(teamStateRoot(cwd, safe), "leader", "inbox.md");
@@ -16911,7 +16911,7 @@ function leaderInboxPath(teamName, cwd) {
 async function ensureLeaderInbox(teamName, cwd) {
   const inboxPath = leaderInboxPath(teamName, cwd);
   validateResolvedPath(inboxPath, teamStateRoot(cwd, sanitizeName(teamName)));
-  await mkdir11(dirname28(inboxPath), { recursive: true });
+  await mkdir11(dirname29(inboxPath), { recursive: true });
   if (!existsSync26(inboxPath)) {
     await writeFile8(inboxPath, LEADER_INBOX_HEADER, "utf-8");
   }
@@ -16920,7 +16920,7 @@ async function ensureLeaderInbox(teamName, cwd) {
 async function appendToLeaderInbox(teamName, message, cwd) {
   const inboxPath = leaderInboxPath(teamName, cwd);
   validateResolvedPath(inboxPath, teamStateRoot(cwd, sanitizeName(teamName)));
-  await mkdir11(dirname28(inboxPath), { recursive: true });
+  await mkdir11(dirname29(inboxPath), { recursive: true });
   await appendFile4(inboxPath, `
 
 ---
@@ -17010,7 +17010,7 @@ var init_conflict_mailbox = __esm({
 // src/team/worker-commit-cadence.ts
 import { existsSync as existsSync27, watch as fsWatch } from "fs";
 import { readFile as readFile13, writeFile as writeFile9, mkdir as mkdir12, unlink as unlink6 } from "fs/promises";
-import { join as join33, dirname as dirname29 } from "path";
+import { join as join33, dirname as dirname30 } from "path";
 import { exec as exec2 } from "child_process";
 function ownsCadence(ctx) {
   const current = cadenceOwners.get(ctx.worktreePath);
@@ -17077,7 +17077,7 @@ async function installPostToolUseHook(worktreePath, workerName) {
 }
 async function pauseHookViaSentinel(worktreePath) {
   const sentinelPath = join33(worktreePath, SENTINEL_FILENAME);
-  await mkdir12(dirname29(sentinelPath), { recursive: true });
+  await mkdir12(dirname30(sentinelPath), { recursive: true });
   await writeFile9(sentinelPath, "", "utf-8");
 }
 async function resumeHookViaSentinel(worktreePath) {
@@ -17188,7 +17188,7 @@ var init_worker_commit_cadence = __esm({
 import { execFileSync as execFileSync7 } from "node:child_process";
 import { existsSync as existsSync28 } from "node:fs";
 import { mkdir as mkdir13, appendFile as appendFile5 } from "node:fs/promises";
-import { dirname as dirname30, join as join34 } from "node:path";
+import { dirname as dirname31, join as join34 } from "node:path";
 function mergerWorktreePathFor(repoRoot, teamName) {
   return join34(getOmcRoot(repoRoot), "team", sanitizeName(teamName), "merger");
 }
@@ -17232,7 +17232,7 @@ function assertRuntimeV2Gate() {
 }
 async function appendEvent(repoRoot, teamName, event) {
   const path4 = orchestratorEventLogPath(repoRoot, teamName);
-  await mkdir13(dirname30(path4), { recursive: true });
+  await mkdir13(dirname31(path4), { recursive: true });
   const full = {
     ts: (/* @__PURE__ */ new Date()).toISOString(),
     team: teamName,
@@ -17291,7 +17291,7 @@ function isWorktreeRegistered(repoRoot, wtPath) {
   return false;
 }
 function ensureMergerWorktree(repoRoot, mergerPath, leaderBranch) {
-  ensureDirWithMode(dirname30(mergerPath));
+  ensureDirWithMode(dirname31(mergerPath));
   if (existsSync28(mergerPath) && isWorktreeRegistered(repoRoot, mergerPath)) {
     return;
   }
@@ -17746,7 +17746,7 @@ ${dirtyFiles.map((f) => `- \`${f}\``).join("\n")}`;
         } catch {
         }
         const auditPath = teardownAuditPath(config.repoRoot, config.teamName);
-        await mkdir13(dirname30(auditPath), { recursive: true });
+        await mkdir13(dirname31(auditPath), { recursive: true });
         for (const u of unmerged) {
           const row = JSON.stringify({
             type: "unmerged_at_shutdown",
@@ -23040,7 +23040,7 @@ import {
   writeFileSync as writeFileSync8
 } from "fs";
 import { readFile as readFile18 } from "fs/promises";
-import { dirname as dirname32, join as join40, resolve as resolve14 } from "path";
+import { dirname as dirname33, join as join40, resolve as resolve14 } from "path";
 import { fileURLToPath as fileURLToPath5 } from "url";
 
 // src/team/api-interop.ts
@@ -23060,7 +23060,7 @@ init_git_worktree();
 init_swallowed_error();
 init_types();
 import { existsSync as existsSync30, readFileSync as readFileSync20 } from "node:fs";
-import { dirname as dirname31, join as join37, resolve as resolvePath } from "node:path";
+import { dirname as dirname32, join as join37, resolve as resolvePath } from "node:path";
 var TEAM_UPDATE_TASK_MUTABLE_FIELDS = /* @__PURE__ */ new Set(["subject", "description", "blocked_by", "requires_code_change", "delegation"]);
 var TEAM_UPDATE_TASK_REQUEST_FIELDS = /* @__PURE__ */ new Set(["team_name", "task_id", "workingDirectory", ...TEAM_UPDATE_TASK_MUTABLE_FIELDS]);
 var RECOVER_WORKER_REQUEST_FIELDS = /* @__PURE__ */ new Set(["team_name", "worker", "request_id", "timeout_ms"]);
@@ -23297,7 +23297,7 @@ function stateRootToWorkingDirectory(stateRoot2) {
     if (idx >= 0) {
       const workspaceRoot = absolute.slice(0, idx);
       if (workspaceRoot && workspaceRoot !== "/") return workspaceRoot;
-      return dirname31(dirname31(dirname31(dirname31(absolute))));
+      return dirname32(dirname32(dirname32(dirname32(absolute))));
     }
   }
   for (const marker of ["/.omc/state", "/.omx/state"]) {
@@ -23305,10 +23305,10 @@ function stateRootToWorkingDirectory(stateRoot2) {
     if (idx >= 0) {
       const workspaceRoot = absolute.slice(0, idx);
       if (workspaceRoot && workspaceRoot !== "/") return workspaceRoot;
-      return dirname31(dirname31(absolute));
+      return dirname32(dirname32(absolute));
     }
   }
-  return dirname31(dirname31(absolute));
+  return dirname32(dirname32(absolute));
 }
 function teamStateRootsMatch(teamName, leaderCwd, advertisedRoot, discoveredRoot, discoveredCwd) {
   const expectedCanonicalRoot = resolvePath(canonicalTeamStateRoot(leaderCwd, teamName));
@@ -23372,7 +23372,7 @@ function resolveTeamWorkingDirectory(teamName, preferredCwd) {
       if (teamStateExists(normalizedTeamName, cursor)) {
         return resolveTeamWorkingDirectoryFromMetadata(normalizedTeamName, cursor) ?? cursor;
       }
-      const parent = dirname31(cursor);
+      const parent = dirname32(cursor);
       if (!parent || parent === cursor) break;
       cursor = parent;
     }
@@ -24618,7 +24618,7 @@ function resolveRuntimeCliPath2(env = process.env) {
   if (env.OMC_RUNTIME_CLI_PATH) {
     return env.OMC_RUNTIME_CLI_PATH;
   }
-  const moduleDir = dirname32(fileURLToPath5(import.meta.url));
+  const moduleDir = dirname33(fileURLToPath5(import.meta.url));
   return join40(moduleDir, "../../bridge/runtime-cli.cjs");
 }
 function ensureJobsDir(jobsDir) {

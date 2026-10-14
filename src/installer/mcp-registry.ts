@@ -3,7 +3,7 @@ import { homedir } from 'os';
 import { dirname, join } from 'path';
 import { isDeepStrictEqual } from 'util';
 
-import { getClaudeConfigDir } from '../utils/config-dir.js';
+import { getClaudeConfigDir, getClaudeStateFilePath } from '../utils/config-dir.js';
 import {
   getGlobalOmcConfigPath,
   getGlobalOmcConfigCandidates,
@@ -76,7 +76,7 @@ export function getClaudeMcpConfigPath(): string {
     return process.env.CLAUDE_MCP_CONFIG_PATH.trim();
   }
 
-  return join(dirname(getClaudeConfigDir()), '.claude.json');
+  return getClaudeStateFilePath();
 }
 
 export function getCodexConfigPath(): string {

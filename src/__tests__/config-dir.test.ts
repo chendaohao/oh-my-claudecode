@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { execFileSync } from 'child_process';
 import { mkdirSync, writeFileSync, rmSync, mkdtempSync } from 'fs';
 import { homedir, tmpdir } from 'os';
-import { basename, join, normalize } from 'path';
-import { getClaudeConfigDir } from '../utils/config-dir.js'
+import { basename, dirname, join, normalize } from 'path';
+import { getClaudeConfigDir, getClaudeStateFilePath, getClaudeStateFilePathFor } from '../utils/config-dir.js'
 import { isValidTranscriptPath } from '../lib/worktree-paths.js';
 import { findRuleFiles } from '../hooks/rules-injector/finder.js';
 
@@ -153,6 +153,74 @@ describe('getClaudeConfigDir', () => {
       },
     );
     expect(output).toBe(normalize(join(homedir(), '.claude-alt')));
+  });
+});
+
+describe('getClaudeStateFilePath', () => {
+  afterEach(() => {
+    if (originalConfigDir === undefined) {
+      delete process.env.CLAUDE_CONFIG_DIR;
+    } else {
+      process.env.CLAUDE_CONFIG_DIR = originalConfigDir;
+    }
+  });
+
+  // Claude Code switches the state-file location on whether CLAUDE_CONFIG_DIR
+  // is set at all, not on whether its value differs from the default. Verified
+  // against the CLI: with the env var unset the state file lands beside the
+  // config dir; with it set to any value (including the default path) the state
+  // file lands inside.
+
+  it('places the state file beside the config dir when CLAUDE_CONFIG_DIR is unset', () => {
+    delete process.env.CLAUDE_CONFIG_DIR;
+    const configDir = normalize(join(homedir(), '.claude'));
+    expect(getClaudeStateFilePath()).toBe(join(homedir(), '.claude.json'));
+    expect(getClaudeStateFilePathFor(configDir)).toBe(join(homedir(), '.claude.json'));
+  });
+
+  it('places the state file inside a custom config dir', () => {
+    const configDir = join(tmpdir(), 'custom-claude-config');
+    process.env.CLAUDE_CONFIG_DIR = configDir;
+    expect(getClaudeStateFilePath()).toBe(join(configDir, '.claude.json'));
+    expect(getClaudeStateFilePathFor(configDir)).toBe(join(configDir, '.claude.json'));
+  });
+
+  // The regression this guards: deriving the path from dirname(configDir)
+  // alone looks right whenever the env var is unset, and silently reads the
+  // wrong file as soon as it is set — including when set to the default path,
+  // where dirname() yields ~/.claude.json but the CLI reads ~/.claude/.claude.json.
+  it('places the state file inside the config dir when it is explicitly set to the default path', () => {
+    const configDir = normalize(join(homedir(), '.claude'));
+    process.env.CLAUDE_CONFIG_DIR = configDir;
+    expect(getClaudeStateFilePath()).toBe(join(configDir, '.claude.json'));
+    expect(getClaudeStateFilePath()).not.toBe(join(homedir(), '.claude.json'));
+  });
+
+  it('treats a whitespace-only CLAUDE_CONFIG_DIR as unset', () => {
+    const configDir = normalize(join(homedir(), '.claude'));
+    process.env.CLAUDE_CONFIG_DIR = '   ';
+    expect(getClaudeStateFilePath()).toBe(join(homedir(), '.claude.json'));
+    expect(getClaudeStateFilePathFor(configDir)).toBe(join(homedir(), '.claude.json'));
+  });
+
+  it('keeps the script helper aligned for both branches', () => {
+    const configDir = join(tmpdir(), 'omc-state-file-parity');
+    const scriptHelper = (env: NodeJS.ProcessEnv): string => execFileSync(
+      process.execPath,
+      [
+        '--input-type=module',
+        '-e',
+        `import { getClaudeStateFilePath } from './scripts/lib/config-dir.mjs'; process.stdout.write(getClaudeStateFilePath());`,
+      ],
+      { cwd: process.cwd(), env, encoding: 'utf-8' },
+    );
+
+    const configured = { ...process.env, CLAUDE_CONFIG_DIR: configDir };
+    expect(scriptHelper(configured)).toBe(join(configDir, '.claude.json'));
+
+    const unset = { ...process.env };
+    delete unset.CLAUDE_CONFIG_DIR;
+    expect(scriptHelper(unset)).toBe(join(dirname(normalize(join(homedir(), '.claude'))), '.claude.json'));
   });
 });
 

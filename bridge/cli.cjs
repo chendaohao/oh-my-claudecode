@@ -3052,6 +3052,13 @@ function getClaudeConfigDir() {
 function getOmcConfigDir() {
   return (0, import_path.join)(getClaudeConfigDir(), ".omc");
 }
+function getClaudeStateFilePathFor(configDir) {
+  const configured = process.env.CLAUDE_CONFIG_DIR?.trim();
+  return configured ? (0, import_path.join)(configDir, ".claude.json") : (0, import_path.join)((0, import_path.dirname)(configDir), ".claude.json");
+}
+function getClaudeStateFilePath() {
+  return getClaudeStateFilePathFor(getClaudeConfigDir());
+}
 function getUpdateCheckCachePath() {
   return (0, import_path.join)(getOmcConfigDir(), "update-check.json");
 }
@@ -43252,7 +43259,7 @@ function getClaudeMcpConfigPath() {
   if (process.env.CLAUDE_MCP_CONFIG_PATH?.trim()) {
     return process.env.CLAUDE_MCP_CONFIG_PATH.trim();
   }
-  return (0, import_path62.join)((0, import_path62.dirname)(getClaudeConfigDir()), ".claude.json");
+  return getClaudeStateFilePath();
 }
 function getCodexConfigPath() {
   const codexHome = process.env.CODEX_HOME?.trim() || (0, import_path62.join)((0, import_os11.homedir)(), ".codex");
@@ -129811,7 +129818,7 @@ function compareOnboardingVersion(left, right) {
   }
   return 0;
 }
-function refreshRuntimeClaudeJson(baseConfigDir, runtimeClaudeJsonPath, sourceClaudeJson = readJsonObject4((0, import_path160.join)((0, import_path160.dirname)(baseConfigDir), ".claude.json"))) {
+function refreshRuntimeClaudeJson(baseConfigDir, runtimeClaudeJsonPath, sourceClaudeJson = readJsonObject4(getClaudeStateFilePathFor(baseConfigDir))) {
   if (!sourceClaudeJson) return;
   const runtimeClaudeJson = readJsonObject4(runtimeClaudeJsonPath) ?? {};
   let changed = false;
@@ -129945,7 +129952,7 @@ function prepareOmcLaunchConfigDir(baseConfigDir = getClaudeConfigDir()) {
   const nextConfigDir = `${runtimeConfigDir}.next`;
   const runtimeClaudeJsonPath = (0, import_path160.join)(runtimeConfigDir, ".claude.json");
   const runtimeCredentialsPath = (0, import_path160.join)(runtimeConfigDir, ".credentials.json");
-  const sourceClaudeJsonPath = (0, import_path160.join)((0, import_path160.dirname)(baseConfigDir), ".claude.json");
+  const sourceClaudeJsonPath = getClaudeStateFilePathFor(baseConfigDir);
   const lifecycleLockPath = lockPathFor((0, import_path160.join)(baseConfigDir, ".omc-launch.prepare.lock"));
   return withFileLockSync(lifecycleLockPath, () => {
     const preservedClaudeJson = pathExists(runtimeClaudeJsonPath) ? (0, import_fs134.readFileSync)(runtimeClaudeJsonPath) : null;
