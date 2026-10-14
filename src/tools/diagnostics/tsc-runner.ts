@@ -7,6 +7,9 @@
 import { execFileSync } from 'child_process';
 import { existsSync } from 'fs';
 import { join } from 'path';
+import { findTypeScriptPackageRoot } from '../lsp/servers.js';
+
+const TSC_ARGS = ['--noEmit', '--pretty', 'false'];
 
 export interface TscDiagnostic {
   file: string;
@@ -22,7 +25,11 @@ export interface TscResult {
   diagnostics: TscDiagnostic[];
   errorCount: number;
   warningCount: number;
+  /** Raw compiler or invocation failure when no file-position diagnostic is available. */
+  error?: string;
 }
+
+
 
 /**
  * Run TypeScript compiler diagnostics on a directory
@@ -41,11 +48,29 @@ export function runTscDiagnostics(directory: string): TscResult {
     };
   }
 
+  // Prefer the project's own TypeScript, run with node: no PATH lookup, no shell.
+  // Otherwise use a PATH `tsc`; on win32 that is the tsc.cmd shim, which Node can
+  // only start through cmd.exe, so it gets a fixed command line.
+  const typescriptRoot = findTypeScriptPackageRoot(directory);
+  const localTscPath = typescriptRoot ? join(typescriptRoot, 'bin', 'tsc') : null;
+  const localTsc = localTscPath && existsSync(localTscPath) ? localTscPath : null;
+  const viaCmd = !localTsc && process.platform === 'win32';
+  // cmd.exe exits 1 for an unknown command as for a failing one; ask where.exe instead.
+  if (viaCmd && !isOnWindowsPath('tsc')) {
+    return tscNotFound(directory, "where.exe found no 'tsc'");
+  }
+  const [file, args]: [string, string[]] = localTsc
+    ? [process.execPath, [localTsc, ...TSC_ARGS]]
+    : viaCmd
+      ? [process.env.COMSPEC || 'cmd.exe', ['/d', '/s', '/c', ['tsc', ...TSC_ARGS].join(' ')]]
+      : ['tsc', TSC_ARGS];
+
   try {
-    execFileSync('tsc', ['--noEmit', '--pretty', 'false'], {
+    execFileSync(file, args, {
       cwd: directory,
       encoding: 'utf-8',
-      stdio: 'pipe'
+      stdio: 'pipe',
+      ...(viaCmd ? { windowsVerbatimArguments: true } : {}),
     });
     return {
       success: true,
@@ -54,9 +79,38 @@ export function runTscDiagnostics(directory: string): TscResult {
       warningCount: 0
     };
   } catch (error: any) {
+    if (error.code === 'ENOENT') {
+      return tscNotFound(directory, error.message);
+    }
     const output = error.stdout || error.stderr || '';
-    return parseTscOutput(output);
+    const result = parseTscOutput(output);
+    return {
+      ...result,
+      success: false,
+      errorCount: Math.max(1, result.errorCount),
+      ...(result.diagnostics.length === 0 ? { error: output.trim() || error.message } : {}),
+    };
   }
+}
+
+function isOnWindowsPath(command: string): boolean {
+  try {
+    execFileSync('where.exe', [command], { stdio: 'ignore', windowsHide: true });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function tscNotFound(directory: string, detail: string): TscResult {
+  return {
+    success: false,
+    diagnostics: [],
+    errorCount: 1,
+    warningCount: 0,
+    error: `tsc not found: no typescript package in ${directory} or its parent directories and no tsc on PATH (${detail}). `
+      + 'Install typescript in the project to enable TypeScript directory diagnostics.',
+  };
 }
 
 /**

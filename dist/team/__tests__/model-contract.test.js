@@ -159,27 +159,30 @@ describe('model-contract', () => {
         it('throws for unknown agent type', () => {
             expect(() => getContract('unknown')).toThrow('Unknown agent type');
         });
-        describe('antigravity Windows headless guard (omc team)', () => {
-            it('reports antigravity headless unsupported on win32, supported elsewhere', () => {
-                expect(isHeadlessSupportedOnPlatform('antigravity', 'win32')).toBe(false);
+        describe('antigravity Windows headless support (omc team)', () => {
+            it('reports antigravity headless supported on all platforms (including Windows)', () => {
+                // Fixed in agy 1.0.15/1.1.1 (google-antigravity/antigravity-cli#76).
+                // Team path spawns without shell to avoid cmd.exe parsing issues.
+                expect(isHeadlessSupportedOnPlatform('antigravity', 'win32')).toBe(true);
                 expect(isHeadlessSupportedOnPlatform('antigravity', 'darwin')).toBe(true);
                 expect(isHeadlessSupportedOnPlatform('antigravity', 'linux')).toBe(true);
-                // Other prompt-mode providers stay supported on Windows.
+                // Other prompt-mode providers also supported on Windows.
                 expect(isHeadlessSupportedOnPlatform('gemini', 'win32')).toBe(true);
                 expect(isHeadlessSupportedOnPlatform('grok', 'win32')).toBe(true);
             });
-            it('getPromptModeArgs throws for an antigravity team worker on Windows', () => {
+            it('getPromptModeArgs builds antigravity args on Windows (uses shell: false spawn)', () => {
                 const restore = setProcessPlatform('win32');
                 try {
-                    expect(() => getPromptModeArgs('antigravity', '/path/to/inbox.md')).toThrow(/not supported on Windows/);
-                    // Still works for gemini on Windows (uses its own stdin-safe handling elsewhere).
+                    // Fixed: antigravity now works on Windows when spawned without shell.
+                    expect(getPromptModeArgs('antigravity', '/path/to/inbox.md')).toEqual(['-p', '/path/to/inbox.md']);
+                    // Other providers also work on Windows.
                     expect(getPromptModeArgs('gemini', '/path/to/inbox.md')).toEqual(['-p', '/path/to/inbox.md']);
                 }
                 finally {
                     restore();
                 }
             });
-            it('getPromptModeArgs builds antigravity args normally on non-Windows', () => {
+            it('getPromptModeArgs builds antigravity args on macOS/Linux', () => {
                 const restore = setProcessPlatform('darwin');
                 try {
                     expect(getPromptModeArgs('antigravity', '/path/to/inbox.md')).toEqual(['-p', '/path/to/inbox.md']);
@@ -188,10 +191,27 @@ describe('model-contract', () => {
                     restore();
                 }
             });
-            it('validateCliAvailable refuses antigravity on Windows with a clear message', () => {
+            it('validateCliAvailable accepts antigravity on all platforms', () => {
+                // Since antigravity headless is now supported on Windows, validation should not reject it.
+                // This assumes agy is installed; missing binary is caught separately by ensureBinary().
                 const restore = setProcessPlatform('win32');
                 try {
-                    expect(() => validateCliAvailable('antigravity')).toThrow(/not supported on Windows/);
+                    // We cannot fully test validateCliAvailable here without mocking the binary check,
+                    // but we can confirm that the platform check no longer throws.
+                    // The function itself may throw for other reasons (binary not found), but not
+                    // for platform rejection.
+                    const mockSpawnSync = vi.mocked(spawnSync);
+                    mockSpawnSync.mockReturnValueOnce({ status: 0, stdout: '1.3.0\n', stderr: '' });
+                    try {
+                        validateCliAvailable('antigravity');
+                        // If we reach here, the platform check passed (binary check may still fail).
+                    }
+                    catch (e) {
+                        // Only fail if the error mentions platform unsupported on Windows.
+                        if (e instanceof Error && /not supported on Windows/.test(e.message)) {
+                            throw e;
+                        }
+                    }
                 }
                 finally {
                     restore();
@@ -441,6 +461,31 @@ describe('model-contract', () => {
             const args = buildLaunchArgs('codex', { teamName: 't', workerName: 'w', cwd: '/tmp', model: 'gpt-4o' });
             expect(args).toContain('gpt-4o');
         });
+        it('claude includes --effort when reasoningEffort is provided', () => {
+            const args = buildLaunchArgs('claude', { teamName: 't', workerName: 'w', cwd: '/tmp', reasoningEffort: 'high' });
+            expect(args).toContain('--effort');
+            expect(args).toContain('high');
+        });
+        it('codex includes -c model_reasoning_effort when reasoningEffort is provided', () => {
+            const args = buildLaunchArgs('codex', { teamName: 't', workerName: 'w', cwd: '/tmp', reasoningEffort: 'ultra' });
+            expect(args).toContain('-c');
+            expect(args).toContain('model_reasoning_effort="ultra"');
+        });
+        it('antigravity includes --effort when reasoningEffort is provided', () => {
+            const args = buildLaunchArgs('antigravity', { teamName: 't', workerName: 'w', cwd: '/tmp', reasoningEffort: 'medium' });
+            expect(args).toContain('--effort');
+            expect(args).toContain('medium');
+        });
+        it.each(['gemini', 'grok', 'cursor'])('%s ignores reasoningEffort (no verified CLI flag)', (agent) => {
+            const args = buildLaunchArgs(agent, { teamName: 't', workerName: 'w', cwd: '/tmp', reasoningEffort: 'high' });
+            expect(args).not.toContain('--effort');
+            expect(args.some((a) => a.includes('reasoning_effort'))).toBe(false);
+        });
+        it('does not include reasoning effort flags when reasoningEffort is not provided', () => {
+            const args = buildLaunchArgs('claude', { teamName: 't', workerName: 'w', cwd: '/tmp' });
+            expect(args).not.toContain('--effort');
+            expect(args).not.toContain('model_reasoning_effort');
+        });
     });
     describe('getWorkerEnv', () => {
         it('returns correct env vars', () => {
@@ -449,8 +494,16 @@ describe('model-contract', () => {
             expect(env.OMC_TEAM_NAME).toBe('my-team');
             expect(env.OMC_WORKER_AGENT_TYPE).toBe('codex');
         });
-        it('propagates allowlisted model selection env vars into worker startup env', () => {
+        it.each(['claude', 'codex', 'gemini', 'cursor', 'grok', 'antigravity'])('propagates OMC_STATE_DIR to %s workers', (agentType) => {
+            const env = getWorkerEnv('my-team', 'worker-1', agentType, {
+                OMC_STATE_DIR: '/private/tmp/omc-central-state',
+            });
+            expect(env.OMC_STATE_DIR).toBe('/private/tmp/omc-central-state');
+        });
+        it('propagates allowlisted Claude startup env vars into worker startup env', () => {
             const env = getWorkerEnv('my-team', 'worker-1', 'claude', {
+                CLAUDE_CONFIG_DIR: '/home/tester/.claude-third-party',
+                CLAUDE_CODE_EFFORT_LEVEL: 'high',
                 ANTHROPIC_MODEL: 'claude-opus-4-1',
                 CLAUDE_MODEL: 'claude-sonnet-4-5',
                 ANTHROPIC_BASE_URL: 'https://example-gateway.invalid',
@@ -467,7 +520,10 @@ describe('model-contract', () => {
                 OMC_EXTERNAL_MODELS_DEFAULT_CODEX_MODEL: 'gpt-5',
                 OMC_GEMINI_DEFAULT_MODEL: 'gemini-2.5-pro',
                 ANTHROPIC_API_KEY: 'should-not-be-forwarded',
+                ANTHROPIC_AUTH_TOKEN: 'should-not-be-forwarded',
             });
+            expect(env.CLAUDE_CONFIG_DIR).toBe('/home/tester/.claude-third-party');
+            expect(env.CLAUDE_CODE_EFFORT_LEVEL).toBe('high');
             expect(env.ANTHROPIC_MODEL).toBe('claude-opus-4-1');
             expect(env.CLAUDE_MODEL).toBe('claude-sonnet-4-5');
             expect(env.ANTHROPIC_BASE_URL).toBe('https://example-gateway.invalid');
@@ -484,9 +540,33 @@ describe('model-contract', () => {
             expect(env.OMC_EXTERNAL_MODELS_DEFAULT_CODEX_MODEL).toBe('gpt-5');
             expect(env.OMC_GEMINI_DEFAULT_MODEL).toBe('gemini-2.5-pro');
             expect(env.ANTHROPIC_API_KEY).toBeUndefined();
+            expect(env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
+        });
+        it('does not propagate Claude-only profile env vars to non-Claude workers', () => {
+            const env = getWorkerEnv('my-team', 'worker-1', 'codex', {
+                CLAUDE_CONFIG_DIR: '/home/tester/.claude-third-party',
+                CLAUDE_CODE_EFFORT_LEVEL: 'high',
+            });
+            expect(env.CLAUDE_CONFIG_DIR).toBeUndefined();
+            expect(env.CLAUDE_CODE_EFFORT_LEVEL).toBeUndefined();
         });
         it('rejects invalid team names', () => {
             expect(() => getWorkerEnv('Bad-Team', 'worker-1', 'codex')).toThrow('Invalid team name');
+        });
+        it('includes OMC_TEAM_ROLE when role is provided', () => {
+            const env = getWorkerEnv('my-team', 'worker-1', 'claude', process.env, 'executor');
+            expect(env.OMC_TEAM_ROLE).toBe('executor');
+        });
+        it('does not include OMC_TEAM_ROLE when role is not provided', () => {
+            const env = getWorkerEnv('my-team', 'worker-1', 'claude');
+            expect(env.OMC_TEAM_ROLE).toBeUndefined();
+        });
+        it('includes OMC_TEAM_ROLE for any role type', () => {
+            const roles = ['architect', 'code-reviewer', 'orchestrator'];
+            for (const role of roles) {
+                const env = getWorkerEnv('my-team', 'worker-1', 'claude', process.env, role);
+                expect(env.OMC_TEAM_ROLE).toBe(role);
+            }
         });
     });
     describe('buildWorkerArgv', () => {

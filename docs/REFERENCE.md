@@ -16,7 +16,7 @@ For v5.3.0, the plugin ships 19 agents, 40 skills, 21 command files, and one con
 - [Legacy MCP Team Runtime Tools (Deprecated)](#legacy-mcp-team-runtime-tools-deprecated-opt-in-only)
 - [Agents (19 Total)](#agents-19-total)
 - [Goal Workflow UX: `/goal`, Ralph, Team, Ultragoal](#goal-workflow-ux-goal-ralph-team-ultragoal)
-- [Skills (43 Total)](#skills-43-total)
+- [Skills (48 Total)](#skills-48-total)
 - [Slash Commands](#slash-commands)
 - [Shipyard Methodology](./shipyard.md) — governed delivery & shared harness map
 - [Claude Code `/goal` Adapter Design](#claude-code-goal-adapter-design)
@@ -114,6 +114,7 @@ If both configurations exist, **project-scoped takes precedence** over global:
 | Variable                   | Default              | Description                                                                                                                                                                                                                                                                 |
 | -------------------------- | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `OMC_STATE_DIR`            | _(unset)_            | Centralized state directory. When set, OMC stores state at `$OMC_STATE_DIR/{project-id}/` instead of `{worktree}/.omc/`. This preserves state across worktree deletions. The project identifier is derived from the git remote URL (or worktree path for local-only repos). |
+| `OMC_AFK_INCLUDE_USER_SETTINGS` | `0` | Set to `1` to load user-level settings and hooks in factory chain links and `omc ralph afk`; see the AFK settings note below. |
 | `OMC_BRIDGE_SCRIPT`        | _(auto-detected)_    | Path to the Python bridge script                                                                                                                                                                                                                                            |
 | `OMC_PARALLEL_EXECUTION`   | `true`               | Enable/disable parallel agent execution                                                                                                                                                                                                                                     |
 | `OMC_CODEX_DEFAULT_MODEL`  | _(provider default)_ | Default model for Codex CLI workers                                                                                                                                                                                                                                         |
@@ -125,6 +126,35 @@ If both configurations exist, **project-scoped takes precedence** over global:
 | `OMC_DISABLE_MULTIREPO`    | _(unset)_            | Set to `1` to disable workspace-marker resolution and fall back to git-root + cwd resolution order. `OMC_STATE_DIR` is still honoured. See [Rollback / disable multi-repo](#rollback--disable-multi-repo-omc_disable_multirepo) below.                                       |
 | `DISABLE_OMC`              | _(unset)_            | Set to `1` or `true` to disable all OMC hooks |
 | `OMC_SKIP_HOOKS`           | _(unset)_            | Comma-separated list of hook names to skip                                                                                                                                                                                                                                  |
+| `OMC_GIT_GUARDRAILS`       | _(unset)_            | `1` force-enables the destructive-git PreToolUse guard in any session; `0` always disables it (immediate exit, wins over everything). With the variable unset, the guard is on by default while an active unattended mode (ralph/autopilot/team/ultragoal) is detected.      |
+| `OMC_RUN_BUDGET_TOKENS`    | _(unset)_            | Opt-in session token budget for unattended modes. Ralph and autopilot compare spend at iteration/phase boundaries (via the `trace_summary` tool): warn at 90%, stop with a resumable budget report at 100%. Advisory today — the model reads the tool output.               |
+| `OMC_STALE_RUN_HOURS`      | `2`                  | Stale-run watchdog threshold in hours. A SessionStart hook reports unattended-mode state files left `active: true` with no mtime progress for this long (the signature of a crashed run). Advisory only — the watchdog never mutates state or resumes runs.                |
+| `OMC_HOST_LOAD_THRESHOLD` | _(dynamic)_ | CPU load threshold (1-minute average). Gate blocks operations when load exceeds this. Default: 80% of available cores. Set to negative value to disable. |
+| `OMC_FREE_MEMORY_THRESHOLD` | `256` | Free memory threshold in MB. Gate blocks operations when free memory falls below this. Set to negative value to disable. |
+| `OMC_MAX_SIBLING_SESSIONS` | `8` | Maximum concurrent OMC sessions before gating expensive operations. Set to negative value to disable. |
+| `OMC_HOST_LOAD_GATE_DISABLED` | _(unset)_ | Set to any value to disable the host load gate entirely. |
+
+#### Headless factory and AFK settings
+
+Factory chain links and `omc ralph afk` use Claude Code's `project,local` setting sources by default, so user-level settings and hooks do not run in these unattended sessions. Set `OMC_AFK_INCLUDE_USER_SETTINGS=1` in the environment that launches OMC to include the `user` source (`user,project,local`). Factory chains capture this choice in the initial link ledger and carry it through later links and recovery, so a recovering process's environment cannot change the chain's setting sources. This is opt-in because user-level settings may run arbitrary hooks in unattended sessions; enable it only when those hooks are trusted.
+
+#### Host Load Gate
+
+OMC monitors host resources (CPU load, free memory, concurrent sessions) to prevent resource exhaustion when multiple sessions are active. When thresholds are exceeded, expensive operations (browser launches, test runners, package installs) are gated with a back-off message.
+
+**Behavior**:
+- **Fail-open**: if metrics are unavailable, the gate allows operations immediately (never deadlocks)
+- **Configurable thresholds**: set environment variables or override via code
+- **Disable-able**: set `OMC_HOST_LOAD_GATE_DISABLED=1` to bypass gating entirely
+
+**Example**: limit concurrent sessions to 4 and free memory to 512 MB:
+
+```bash
+export OMC_MAX_SIBLING_SESSIONS=4
+export OMC_FREE_MEMORY_THRESHOLD=512
+```
+
+**Timeout**: gates wait up to 30 seconds by default before allowing operations (fail-open).
 
 #### Centralized State with `OMC_STATE_DIR`
 
@@ -559,14 +589,16 @@ omc ask codex "review this patch from a security perspective"
 omc ask gemini --prompt "suggest UX improvements"
 omc ask antigravity --prompt "suggest UX improvements"
 omc ask cursor --prompt "apply this implementation plan"
+omc ask muse --agent-prompt critic --prompt "review this plan"
 omc ask claude --agent-prompt executor --prompt "create an implementation plan"
 ```
 
-- Provider matrix: `claude | codex | gemini | antigravity | grok | cursor`
+- Provider matrix: `claude | codex | gemini | antigravity | grok | cursor | muse`
 - Artifacts: `.omc/artifacts/ask/{provider}-{slug}-{timestamp}.md`
 - Canonical env vars: `OMC_ASK_ADVISOR_SCRIPT`, `OMC_ASK_ORIGINAL_TASK`
 - Phase-1 aliases (deprecated warning): `OMX_ASK_ADVISOR_SCRIPT`, `OMX_ASK_ORIGINAL_TASK`
-- Skill entrypoint: `/oh-my-claudecode:ask <claude|codex|gemini|antigravity|grok|cursor> <prompt>` routes to this command
+- Skill entrypoint: `/oh-my-claudecode:ask <claude|codex|gemini|antigravity|grok|cursor|muse> <prompt>` routes to this command
+- Muse and Grok require CLI versions supporting `--prompt-file`; role prompts are passed through a private temporary file. Muse disables approval prompts while preserving its configured sandbox behavior.
 
 ### `omc team` (CLI runtime surface)
 
@@ -677,6 +709,7 @@ Use OMC's terminal and library surfaces in non-interactive environments:
 
 - Run CLI commands that have deterministic exit codes, for example `omc setup`, `omc ask ...`, `omc session search ... --json`, or repo-owned verification scripts such as `npm run sync-metadata:verify`.
 - Provide authentication through runner environment variables (`ANTHROPIC_API_KEY`) or pre-authenticated provider CLIs for `codex`, `gemini`, `antigravity`, `grok`, or `cursor` when using `omc ask` / `omc team`.
+- For `omc ask muse`, install and authenticate the Muse CLI before running automation.
 - Keep state explicit for ephemeral runners by setting `OMC_STATE_DIR` when state must survive worktree deletion or checkout replacement.
 - Avoid interactive slash skills (`/oh-my-claudecode:autopilot`, `/oh-my-claudecode:ralph`, `/oh-my-claudecode:execute`, `/oh-my-claudecode:deep-interview`, `/oh-my-claudecode:team`) in CI jobs; they require an active Claude Code session and user-visible conversation loop.
 - OMC does not currently provide a VS Code extension or VS Code-specific automation contract. The documented IDE path is to use Claude Code's own integrations, then install OMC through the Claude Code plugin surface.
@@ -759,29 +792,29 @@ Model-tier aliases are shown in the table below; the shipped agent catalog conta
 
 Always use `oh-my-claudecode:` prefix when calling via Task tool.
 
-### By Domain and Tier
+### By Domain
 
-| Domain             | LOW (Haiku)             | MEDIUM (Sonnet)       | HIGH (Opus)         |
-| ------------------ | ----------------------- | --------------------- | ------------------- |
-| **Analysis**       | `architect-low`         | `architect-medium`    | `architect`         |
-| **Execution**      | `executor-low`          | `executor`            | `executor-high`     |
-| **Search**         | `explore`               | -                     | `explore-high`      |
-| **Research**       | -                       | `document-specialist` | -                   |
-| **Frontend**       | `designer-low`          | `designer`            | `designer-high`     |
-| **Docs**           | `writer`                | -                     | -                   |
-| **Visual**         | -                       | `vision`              | -                   |
-| **Planning**       | -                       | -                     | `planner`           |
-| **Critique**       | -                       | -                     | `critic`            |
-| **Pre-Planning**   | -                       | -                     | `analyst`           |
-| **Testing**        | -                       | `qa-tester`           | -                   |
-| **Tracing**        | -                       | `tracer`              | -                   |
-| **Security**       | `security-reviewer-low` | -                     | `security-reviewer` |
-| **Build**          | -                       | `debugger`            | -                   |
-| **TDD**            | -                       | `test-engineer`       | -                   |
-| **Code Review**    | -                       | -                     | `code-reviewer`     |
-| **Data Analysis** | -                       | `scientist`           | `scientist-high`    |
-| **Git**            | -                       | `git-master`          | -                   |
-| **Simplification** | -                       | -                     | `code-simplifier`   |
+| Domain             | Agent                   | Default Model | Alternative Models      |
+| ------------------ | ----------------------- | ------------- | ----------------------- |
+| **Analysis**       | `architect`             | sonnet        | haiku (simple), opus (complex) |
+| **Execution**      | `executor`              | sonnet        | haiku (trivial), opus (complex) |
+| **Search**         | `explore`               | haiku         | -                       |
+| **Research**       | `document-specialist`   | sonnet        | -                       |
+| **Frontend**       | `designer`              | sonnet        | haiku (simple), opus (complex) |
+| **Docs**           | `writer`                | haiku         | -                       |
+| **Visual**         | `vision`                | sonnet        | -                       |
+| **Planning**       | `planner`               | opus          | -                       |
+| **Critique**       | `critic`                | opus          | -                       |
+| **Pre-Planning**   | `analyst`               | opus          | -                       |
+| **Testing**        | `qa-tester`             | sonnet        | -                       |
+| **Tracing**        | `tracer`                | sonnet        | -                       |
+| **Security**       | `security-reviewer`     | sonnet        | opus (complex audit)    |
+| **Build**          | `debugger`              | sonnet        | -                       |
+| **TDD**            | `test-engineer`         | sonnet        | -                       |
+| **Code Review**    | `code-reviewer`         | sonnet        | -                       |
+| **Data Analysis**  | `scientist`             | sonnet        | opus (complex analysis) |
+| **Git**            | `git-master`            | sonnet        | -                       |
+| **Simplification** | `code-simplifier`       | sonnet        | -                       |
 
 ### Agent Selection Guide
 
@@ -789,14 +822,14 @@ Always use `oh-my-claudecode:` prefix when calling via Task tool.
 | ------------------------------ | ---------------------------------------------------------------------- | ------ |
 | Quick code lookup              | `explore`                                                              | haiku  |
 | Find files/patterns            | `explore`                                                              | haiku  |
-| Complex architectural search   | `explore-high`                                                         | opus   |
-| Simple code change             | `executor-low`                                                         | haiku  |
+| Complex architectural search   | `architect`                                                            | opus   |
+| Simple code change             | `executor` (model="haiku")                                             | haiku  |
 | Feature implementation         | `executor`                                                             | sonnet |
-| Complex refactoring            | `executor-high`                                                        | opus   |
-| Debug simple issue             | `architect-low`                                                        | haiku  |
+| Complex refactoring            | `executor` (model="opus")                                              | opus   |
+| Debug simple issue             | `architect` (model="haiku")                                            | haiku  |
 | Debug complex issue            | `architect`                                                            | opus   |
 | UI component                   | `designer`                                                             | sonnet |
-| Complex UI system              | `designer-high`                                                        | opus   |
+| Complex UI system              | `designer` (model="opus")                                              | opus   |
 | Write docs/comments            | `writer`                                                               | haiku  |
 | Research docs/APIs             | `document-specialist` (repo docs first; optional Context Hub / `chub`) | sonnet |
 | Analyze images/diagrams        | `vision`                                                               | sonnet |
@@ -806,7 +839,7 @@ Always use `oh-my-claudecode:` prefix when calling via Task tool.
 | Test CLI interactively         | `qa-tester`                                                            | sonnet |
 | Evidence-driven causal tracing | `tracer`                                                               | sonnet |
 | Security review                | `security-reviewer`                                                    | sonnet |
-| Quick security scan            | `security-reviewer-low`                                                | haiku  |
+| Quick security scan            | `security-reviewer` (model="haiku")                                     | haiku  |
 | Fix build errors               | `debugger`                                                             | sonnet |
 | Simple build fix               | `debugger` (model=haiku)                                               | haiku  |
 | TDD workflow                   | `test-engineer`                                                        | sonnet |
@@ -815,7 +848,7 @@ Always use `oh-my-claudecode:` prefix when calling via Task tool.
 | Quick code check               | `code-reviewer` (model=haiku)                                          | haiku  |
 | Data analysis/stats            | `scientist`                                                            | sonnet |
 | Quick data inspection          | `scientist` (model=haiku)                                              | haiku  |
-| Deep data analysis            | `scientist-high`                                                       | opus   |
+| Deep data analysis            | `scientist` (model="opus")                                             | opus   |
 | Git operations                 | `git-master`                                                           | sonnet |
 | Code simplification            | `code-simplifier`                                                      | opus   |
 
@@ -913,7 +946,7 @@ Autopilot continues to own cancel, resume, cleanup, state inspection, HUD, and S
 
 V1 deliberately defers `stageModels` and all model/provider/role routing, inline/no-spawn execution, dynamic commands/modes/state files, arbitrary stages/prompts/plugins and control-flow extensions, and the separate custom-skill inline-array frontmatter parser mismatch. See [ADR 03487](./adr/03487-named-autopilot-stage-profiles.md) for the decision record.
 
-## Skills (43 Total)
+## Skills (48 Total)
 
 Includes bundled workflow, utility, domain, and compatibility skills. Runtime truth comes from the builtin skill loader scanning `skills/*/SKILL.md` and expanding aliases declared in frontmatter.
 
@@ -945,23 +978,28 @@ Marketplace/plugin installs compact the native plugin `skills/*/SKILL.md` files 
 | `intent`                  | Internal requirements intake for non-engineer contributors                      | `/oh-my-claudecode:intent`                  |
 | `launch`                  | Shipyard governed delivery pipeline: spec, tickets, frontier execution          | `/oh-my-claudecode:launch`                  |
 | `loft`                    | Shipyard shape-before-steel discipline: throwaway artifacts answer design questions | `/oh-my-claudecode:loft`              |
+| `map`                     | The yard's skill map: which skill owns which job, in delivery-loop order; routes, never executes | `/oh-my-claudecode:map`                  |
 | `minimal-code-discipline` | YAGNI-ladder writing-time discipline: reuse first, shortest correct diff        | `/oh-my-claudecode:minimal-code-discipline` |
 | `minimal-prose-discipline` | Writing-time discipline for the agent's own prose: protected core, no filler, close on the action | `/oh-my-claudecode:minimal-prose-discipline` |
 | `omc-doctor`              | Diagnose and fix installation issues                                           | `/oh-my-claudecode:omc-doctor`              |
 | `omc-plan`                | Strategic planning with optional interview and consensus modes                 | `/oh-my-claudecode:omc-plan`               |
 | `omc-review`              | Evaluate finished work for defects, risk, and simplification                   | `/oh-my-claudecode:omc-review`             |
 | `omc-setup`               | Install or refresh OMC for plugin, npm, and local-development setups           | `/oh-my-claudecode:omc-setup`              |
+| `pr`                      | PR body assembly from OMC's paper trail: smallest visual, verify evidence, ADR-test reversibility | `/oh-my-claudecode:pr` |
 | `project-session-manager` | Manage isolated development environments (git worktrees + tmux)                | `/oh-my-claudecode:project-session-manager` |
 | `psm`                     | Deprecated compatibility alias for `project-session-manager`                    | `/oh-my-claudecode:psm`                     |
 | `ralph`                   | Persistence loop until verified completion                                     | `/oh-my-claudecode:ralph`                   |
 | `ralplan`                 | Consensus planning entrypoint                                                   | `/oh-my-claudecode:ralplan`                 |
 | `release`                 | Automated release workflow                                                      | `/oh-my-claudecode:release`                 |
+| `refit`                   | Cross-session retrospective; instrument evidence to user-approved environment fixes | `/oh-my-claudecode:refit` |
 | `remember`                | Save and retrieve durable session memory                                        | `/oh-my-claudecode:remember`                |
 | `research`                | Investigate an open question and return grounded findings                       | `/oh-my-claudecode:research`               |
 | `self-improve`            | Autonomous evolutionary code improvement engine                                | `/oh-my-claudecode:self-improve`           |
+| `session-flow`            | Reorient in the current session with an evidence-backed map of its flow        | `/oh-my-claudecode:session-flow`           |
 | `skill`                   | Manage local skills (list/add/remove/search/edit)                              | `/oh-my-claudecode:skill`                   |
 | `skillify`                | Extract a reusable skill from the current session                              | `/oh-my-claudecode:skillify`                |
 | `team`                    | Coordinated multi-agent workflow                                               | `/oh-my-claudecode:team`                    |
+| `tdd`                     | Test-first discipline at pre-agreed seams                                     | `/oh-my-claudecode:tdd`                     |
 | `trace`                   | Evidence-driven tracing lane with parallel tracer hypotheses                   | `/oh-my-claudecode:trace`                  |
 | `ultragoal`               | Durable multi-goal workflow with checkpointed artifacts                        | `/oh-my-claudecode:ultragoal`              |
 | `verify`                  | Verify that a change really works before claiming completion                    | `/oh-my-claudecode:verify`                 |
@@ -973,13 +1011,13 @@ Marketplace/plugin installs compact the native plugin `skills/*/SKILL.md` files 
 
 ## Slash Commands
 
-Most installed skills are exposed as `/oh-my-claudecode:<registered-name>`. The plugin ships 21 command files alongside the 42 skill entrypoints listed above; the commands below list both surfaces. Compatibility keyword modes like `deep-analyze` and `tdd` are prompt-triggered behaviors, not standalone slash commands. OMC's manual compaction helper is plugin-scoped as `/oh-my-claudecode:compact`; bare `/compact` remains Claude Code's native command and is not shadowed by OMC. The helper preserves the user's note and instructs them to run bare `/compact`; OMC does not invoke native compaction itself because Claude Code's built-in `/compact` is not a prompt skill.
+Most installed skills are exposed as `/oh-my-claudecode:<registered-name>`. The plugin ships 21 command files alongside the 45 skill entrypoints listed above; the commands below list both surfaces. Compatibility keyword modes like `deep-analyze` and `tdd` are prompt-triggered behaviors, not standalone slash commands. OMC's manual compaction helper is plugin-scoped as `/oh-my-claudecode:compact`; bare `/compact` remains Claude Code's native command and is not shadowed by OMC. The helper preserves the user's note and instructs them to run bare `/compact`; OMC does not invoke native compaction itself because Claude Code's built-in `/compact` is not a prompt skill.
 
 | Command                                                  | Description                                                                                   |
 | -------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
 | `/oh-my-claudecode:ai-slop-cleaner <target>`             | Run the anti-slop cleanup workflow (`--review` for reviewer-only pass)                        |
 | `/oh-my-claudecode:agent-doc-discipline`                 | Apply the writing-time discipline for agent-facing documents                                   |
-| `/oh-my-claudecode:ask <claude\|codex\|gemini\|antigravity\|grok\|cursor> <prompt>` | Route a prompt through the selected advisor CLI and capture an ask artifact                   |
+| `/oh-my-claudecode:ask <claude\|codex\|gemini\|antigravity\|grok\|cursor\|muse> <prompt>` | Route a prompt through the selected advisor CLI and capture an ask artifact                   |
 | `/oh-my-claudecode:architecture-survey [area]`           | Survey the repo for architecture-deepening candidates with evidence; reports only, never edits  |
 | `/oh-my-claudecode:ask-navigator <idea\|map>`            | Chart a foggy effort into a map of decision tickets (or work the open map), then hand off to launch |
 | `/oh-my-claudecode:autopilot <task>`                     | Full autonomous execution                                                                     |
@@ -996,7 +1034,7 @@ Most installed skills are exposed as `/oh-my-claudecode:<registered-name>`. The 
 | `/oh-my-claudecode:external-context <topic>`             | Run parallel document-specialist research                                                     |
 | `/oh-my-claudecode:harbor [sweep\|look at #N\|what's ready?]` | Sweep external issues and PRs, verify claims, hand a signature docket                    |
 | `/oh-my-claudecode:hud [setup\|minimal\|focused\|full\|status]` | Configure HUD/statusline                                                               |
-| `/oh-my-claudecode:drydock [--check]`                   | Lay the shipyard harness keel in a repo (5 surfaces); --check audits drift                     |
+| `/oh-my-claudecode:drydock [--check]`                   | Lay the shipyard harness keel in a repo (two faces seeded day one; every other surface appears on first use); --check audits drift |
 | `/oh-my-claudecode:launch <brief\|spec-path> [--serial]` | Run the shipyard governed delivery pipeline (spec -> tickets -> frontier)                      |
 | `/oh-my-claudecode:loft <design-question>`               | Loft the shape before cutting steel: a throwaway artifact answers a design question prose cannot settle |
 | `/oh-my-claudecode:minimal-code-discipline`              | Apply the YAGNI-ladder writing-time discipline while implementing                              |
@@ -1005,17 +1043,20 @@ Most installed skills are exposed as `/oh-my-claudecode:<registered-name>`. The 
 | `/oh-my-claudecode:omc-plan <description>`               | Start planning session (supports consensus structured deliberation)                           |
 | `/oh-my-claudecode:omc-review [path]`                    | Review finished work for defects and risk                                                       |
 | `/oh-my-claudecode:omc-setup`                            | Install or refresh OMC                                                                        |
+| `/oh-my-claudecode:pr`                                   | Assemble a PR body from existing paper-trail evidence                                           |
 | `/oh-my-claudecode:project-session-manager <arguments>`  | Manage isolated dev environments with git worktrees + tmux                                    |
 | `/oh-my-claudecode:psm <arguments>`                      | Deprecated alias for project session manager                                                  |
 | `/oh-my-claudecode:ralph <task>`                         | Persistence loop until task completion (`--critic=architect \| critic \| codex`)             |
 | `/oh-my-claudecode:ralplan <description>`                | Iterative planning with consensus structured deliberation                                     |
 | `/oh-my-claudecode:release`                              | Automated release workflow                                                                    |
+| `/oh-my-claudecode:refit [--scope <area>] [--last <N sessions>]` | Retrospect on OMC instrumentation and propose user-approved environment fixes            |
 | `/oh-my-claudecode:remember <note>`                      | Save durable session memory                                                                   |
 | `/oh-my-claudecode:research <question>`                  | Investigate an open question and return grounded findings                                      |
 | `/oh-my-claudecode:self-improve <topic>`                 | Run the autonomous code-improvement workflow                                                   |
 | `/oh-my-claudecode:skill <action>`                       | Manage local skills                                                                           |
 | `/oh-my-claudecode:skillify`                             | Extract a reusable skill from the current session                                             |
 | `/oh-my-claudecode:team <N>:<agent> <task>`               | Coordinated native team workflow                                                              |
+| `/oh-my-claudecode:tdd`                                  | Test-first discipline at pre-agreed seams                                                     |
 | `/oh-my-claudecode:trace`                                | Evidence-driven tracing lane                                                                  |
 | `/oh-my-claudecode:ultragoal <condition>`                | Track a durable multi-goal workflow                                                           |
 | `/oh-my-claudecode:verify <target>`                      | Verify that a change really works before claiming completion                                  |
@@ -1072,7 +1113,7 @@ OMC registers 21 hook scripts across 11 Claude Code lifecycle events. For detail
 | **SessionStart**       | `session-start.mjs`, `project-memory-session.mjs`, `setup-init.mjs` (init), `setup-maintenance.mjs` (maintenance) | 5s, 5s, 30s, 60s |
 | **PreToolUse**         | `pre-tool-enforcer.mjs`                                                                                           | 5s trusted Worker |
 | **PermissionRequest**  | `permission-handler.mjs` (Bash only)                                                                              | 5s               |
-| **PostToolUse**        | `post-tool-verifier.mjs`, `project-memory-posttool.mjs`, `post-tool-rules-injector.mjs`                          | 5s, 3s, 3s trusted Workers |
+| **PostToolUse**        | `post-tool-verifier.mjs`, `project-memory-posttool.mjs`, `post-tool-rules-injector.mjs`, `post-tool-directory-context-injector.mjs` | 5s, 3s, 3s, 3s trusted Workers |
 | **PostToolUseFailure** | `post-tool-use-failure.mjs`                                                                                       | 3s               |
 | **SubagentStart**      | `subagent-tracker.mjs start`                                                                                      | 3s               |
 | **SubagentStop**       | `subagent-tracker.mjs stop`, `verify-deliverables.mjs`                                                            | 5s, 5s           |

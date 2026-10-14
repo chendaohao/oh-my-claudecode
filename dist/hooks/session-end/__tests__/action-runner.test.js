@@ -94,6 +94,58 @@ describe('SessionEnd action runner', () => {
         }));
         expect(child.unref).toHaveBeenCalledOnce();
     });
+    it('passes model-provider auth and gh auth context to spawn-next without forwarding ambient AFK settings', async () => {
+        const directory = mkdtempSync(join(tmpdir(), 'omc-action-runner-auth-'));
+        directories.push(directory);
+        const child = Object.assign(new EventEmitter(), { pid: 12350, unref: vi.fn() });
+        childProcess.spawn.mockImplementation(() => {
+            queueMicrotask(() => child.emit('exit', 0));
+            return child;
+        });
+        vi.stubEnv('ANTHROPIC_API_KEY', 'test-key');
+        vi.stubEnv('ANTHROPIC_BASE_URL', 'https://example.invalid');
+        vi.stubEnv('OMC_HOOK_BRIDGE', '/tmp/bridge.js');
+        vi.stubEnv('OMC_AFK_INCLUDE_USER_SETTINGS', '1');
+        // The spawn-next action launches claude chain links from its runner; the
+        // passthrough must reach it or every link exits "Not logged in".
+        const spawnNextContext = context(directory, 'foreground-cleanup');
+        spawnNextContext.actionName = 'spawn-next';
+        await runSessionEndAction(spawnNextContext, async () => undefined);
+        const environment = childProcess.spawn.mock.calls[0][2].env;
+        expect(environment).toMatchObject({
+            ANTHROPIC_API_KEY: 'test-key',
+            ANTHROPIC_BASE_URL: 'https://example.invalid',
+            OMC_HOOK_BRIDGE: '/tmp/bridge.js',
+        });
+        // The opt-in is stored in the durable chain ledger, not copied from the
+        // process that happens to recover this action.
+        expect(environment).not.toHaveProperty('OMC_AFK_INCLUDE_USER_SETTINGS');
+        if (process.platform === 'win32') {
+            expect(environment).toHaveProperty('APPDATA', process.env.APPDATA);
+            expect(environment).toHaveProperty('LOCALAPPDATA', process.env.LOCALAPPDATA);
+        }
+    });
+    it('does not pass model-provider auth to non spawn-next action children', async () => {
+        vi.stubEnv('ANTHROPIC_API_KEY', 'test-key');
+        vi.stubEnv('OMC_AFK_INCLUDE_USER_SETTINGS', '1');
+        for (const name of ['callback', 'openclaw', 'foreground-cleanup']) {
+            const directory = mkdtempSync(join(tmpdir(), 'omc-action-runner-noauth-'));
+            directories.push(directory);
+            const child = Object.assign(new EventEmitter(), { pid: 12351, unref: vi.fn() });
+            childProcess.spawn.mockReset();
+            childProcess.spawn.mockImplementation(() => {
+                queueMicrotask(() => child.emit('exit', 0));
+                return child;
+            });
+            const ctx = context(directory, 'foreground-cleanup');
+            ctx.actionName = name;
+            ctx.action = { ...ctx.action, payload: {} };
+            await runSessionEndAction(ctx, async () => undefined);
+            const environment = childProcess.spawn.mock.calls[0][2].env;
+            expect(environment).not.toHaveProperty('ANTHROPIC_API_KEY');
+            expect(environment).not.toHaveProperty('OMC_AFK_INCLUDE_USER_SETTINGS');
+        }
+    });
     it('passes notification credentials only to notification action children', async () => {
         const directory = mkdtempSync(join(tmpdir(), 'omc-action-runner-'));
         directories.push(directory);

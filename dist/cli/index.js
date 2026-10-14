@@ -21,6 +21,7 @@ import { checkForUpdates, performUpdate, formatUpdateNotification, getInstalledV
 import { install as installOmc, isInstalled, getInstallInfo } from '../installer/index.js';
 import { waitCommand, waitStatusCommand, waitDaemonCommand, waitDetectCommand } from './commands/wait.js';
 import { doctorConflictsCommand } from './commands/doctor-conflicts.js';
+import { ralphCommand } from './commands/ralph.js';
 import { doctorTeamRoutingCommand } from './commands/doctor-team-routing.js';
 import { capabilitiesCheckCommand, capabilitiesLockCommand } from './commands/capabilities.js';
 import { sessionSearchCommand } from './commands/session-search.js';
@@ -38,6 +39,8 @@ import { askCommand, ASK_USAGE } from './ask.js';
 import { graphCommand } from './graph.js';
 import { checkpointCommand } from './checkpoint.js';
 import { lookoutCommand } from './lookout.js';
+import { intakeCommand } from './commands/intake.js';
+import { factoryCommand } from './commands/factory.js';
 import { warnIfWin32 } from './win32-warning.js';
 import { autoresearchCommand } from './autoresearch.js';
 import { parseHudWatchInterval, runHudWatchLoop } from './hud-watch.js';
@@ -860,13 +863,6 @@ Examples:
             console.log('    executor            - Focused execution (Sonnet)');
             console.log('    planner          - Strategic planning (Opus)');
             console.log('    qa-tester           - Interactive CLI testing (Sonnet)');
-            console.log(chalk.gray('  Tiered Variants (for smart routing):'));
-            console.log('    architect-medium       - Simpler analysis (Sonnet)');
-            console.log('    architect-low          - Quick questions (Haiku)');
-            console.log('    executor-high       - Complex tasks (Opus)');
-            console.log('    executor-low        - Trivial tasks (Haiku)');
-            console.log('    designer-high       - Design systems (Opus)');
-            console.log('    designer-low        - Simple styling (Haiku)');
             console.log('');
             console.log(chalk.yellow('After Updates:'));
             console.log('  Run \'/omc-default\' (project) or \'/omc-default-global\' (global)');
@@ -1166,6 +1162,8 @@ Examples:
     const exitCode = await doctorConflictsCommand(options);
     process.exit(exitCode);
 });
+// Headless AFK ralph launcher (factory AFK profile + declared verify commands).
+ralphCommand(program);
 /**
  * Setup command - Official CLI entry point for omc-setup
  *
@@ -1420,6 +1418,8 @@ program
 program.addCommand(graphCommand());
 program.addCommand(checkpointCommand());
 program.addCommand(lookoutCommand());
+program.addCommand(intakeCommand());
+program.addCommand(factoryCommand());
 /**
  * Returns the fully-configured commander program.
  *

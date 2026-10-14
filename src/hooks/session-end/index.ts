@@ -9,9 +9,9 @@ import { cleanupBridgeSessions } from '../../tools/python-repl/bridge-manager.js
 import { resolveToWorktreeRoot, getOmcRoot, validateSessionId, isValidTranscriptPath, resolveSessionStatePath, withProjectIdentifierScope } from '../../lib/worktree-paths.js';
 import { SESSION_END_MODE_STATE_FILES, SESSION_METRICS_MODE_FILES } from '../../lib/mode-names.js';
 import { canClearStateForSession, clearModeStateFile, clearStateFileLockedIf, readModeStateWithMeta } from '../../lib/mode-state-io.js';
-import { completeForegroundCleanup, completeForegroundCleanupAndSealCore, prepareCoreManifest, readSessionEndJob, sealWikiManifest } from './cleanup-manifest.js';
+import { completeForegroundCleanup, completeForegroundCleanupAndSealCore, prepareCoreManifest, readSessionEndJob } from './cleanup-manifest.js';
+import { planChainEnqueue } from './chain-enqueuer.js';
 import { spawnSessionEndWorker } from './worker.js';
-import { buildWikiSessionEndCaptureIntent } from '../wiki/session-hooks.js';
 import { getSessionEndStalePrdWarning } from '../ralph/stale-prd.js';
 import { isValidTeamInstanceId, isValidLeaderSessionId } from '../../team/types.js';
 
@@ -971,25 +971,26 @@ export async function processSessionEnd(input: SessionEndInput): Promise<HookOut
 
     const metrics = recordSessionMetrics(directory, input);
     const payload = buildDurableSessionEndPayload(directory, input, metrics);
-    const manifest = prepareCoreManifest(directory, input.session_id, payload);
+    const chain = planChainEnqueue(directory, input.session_id, input.reason);
+    const manifest = prepareCoreManifest(directory, input.session_id, chain ? { ...payload, chain } : payload);
     if (!manifest) return { continue: true };
     exportSessionSummary(directory, metrics);
-    let foregroundOutcome: Record<string, unknown>;
-    try { foregroundOutcome = await runForegroundSessionEndCleanup(directory, input.session_id, false); } catch { return { continue: true }; }
-    const sealed = completeForegroundCleanupAndSealCore(directory, input.session_id, foregroundOutcome);
-    if (sealed) spawnSessionEndWorker({ directory, sessionId: input.session_id });
+    // The manifest already carries the enqueued chain, so the worker must be
+    // launched even when inline cleanup or core sealing fails — the worker's
+    // post-grace path owns deferred foreground cleanup + recovery, and without
+    // a spawn the enqueued chain stalls with no executor at all.
+    let foregroundOutcome: Record<string, unknown> | undefined;
+    try { foregroundOutcome = await runForegroundSessionEndCleanup(directory, input.session_id, false); } catch { /* worker post-grace path recovers */ }
+    if (foregroundOutcome !== undefined) {
+      try { completeForegroundCleanupAndSealCore(directory, input.session_id, foregroundOutcome); } catch { /* another writer holds the lease; it continues */ }
+    }
+    spawnSessionEndWorker({ directory, sessionId: input.session_id });
     return { continue: true };
   });
 }
 
 /** Wiki producer has no foreground lock or write; it only seals a durable capture/no-op intent. */
-export async function processWikiSessionEnd(input: SessionEndInput): Promise<HookOutput> {
-  const directory = resolveToWorktreeRoot(input.cwd);
-  const intent = buildWikiSessionEndCaptureIntent({ cwd: directory, session_id: input.session_id });
-  sealWikiManifest(directory, input.session_id, intent ? { ...intent } : undefined);
-  spawnSessionEndWorker({ directory, sessionId: input.session_id });
-  return { continue: true };
-}
+export { publishWikiSessionEndBootstrap as processWikiSessionEnd } from './wiki-foreground-bootstrap.js';
 
 export async function handleSessionEnd(input: SessionEndInput): Promise<HookOutput> {
   return processSessionEnd(input);

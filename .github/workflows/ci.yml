@@ -60,6 +60,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Build TypeScript for runtime entrypoint tests
+        run: npx tsc
+
       - name: Run functional tests
         run: npm test -- --run
 
@@ -102,11 +105,13 @@ jobs:
           npx vitest run --fileParallelism=false
           src/utils/__tests__/encode-project-path.test.ts
           src/__tests__/resolve-transcript-path.test.ts
+          src/__tests__/hud/cwd-hyperlink-boundary.test.ts
           src/__tests__/session-history-search.test.ts
           src/cli/__tests__/session-search.test.ts
           src/lib/__tests__/worktree-paths.test.ts
           src/lib/__tests__/worktree-paths-git-probe-failclosed.test.ts
           src/lib/__tests__/worktree-paths-foreign-root.test.ts
+          src/lib/__tests__/worktree-paths-issue-4254-win32.test.ts
           src/tools/__tests__/wiki-tools-git-probe-failclosed.test.ts
           src/tools/__tests__/wiki-tools-direct-dist-failclosed.test.ts
           src/hooks/project-memory/__tests__/hot-path-tracker.test.ts
@@ -118,6 +123,12 @@ jobs:
           src/__tests__/run-cjs-windows-stdio-contract.test.ts
           src/installer/__tests__/claude-md-transaction.test.ts
           src/team/__tests__/cli-detection.windows.integration.test.ts
+
+      - name: Run Windows legacy state-lock tests
+        run: >-
+          npx vitest run --fileParallelism=false
+          src/lib/__tests__/atomic-write.test.ts
+          -t "legacy.*lock"
 
   better-sqlite3-node26:
     name: better-sqlite3 Node 26 (${{ matrix.os }})
@@ -176,6 +187,10 @@ jobs:
           npx vitest run
           src/hooks/__tests__/precompact-restore.test.ts
           src/__tests__/session-start-precompact-restore.test.ts
+
+      - name: Run Unix state-lock tests
+        if: runner.os != 'Windows'
+        run: npx vitest run src/lib/__tests__/atomic-write.test.ts
 
   build:
     name: Build
@@ -346,6 +361,35 @@ jobs:
             fi
             echo "packaged bridge registers $tool"
           done
+
+          echo "🔎 Verifying contained-fs in packaged tarball (issue #4217)..."
+          for script in scripts/build-contained-fs.mjs scripts/postinstall-contained-fs.mjs scripts/verify-graph-contained-fs.mjs; do
+            if ! tar -tzf "$TARBALL" | grep -q "package/$script"; then
+              echo "::error::npm package missing required script: $script"
+              exit 1
+            fi
+            echo "✓ $script included in tarball"
+          done
+          if ! tar -tzf "$TARBALL" | grep -q "package/native/contained-fs.c"; then
+            echo "::error::npm package missing native source: native/contained-fs.c"
+            exit 1
+          fi
+          echo "✓ native source included in tarball"
+          PKG_JSON=$(tar -xzOf "$TARBALL" package/package.json)
+          if ! echo "$PKG_JSON" | grep -q '"postinstall".*postinstall-contained-fs.mjs'; then
+            echo "::error::npm package missing postinstall hook"
+            exit 1
+          fi
+          echo "✓ postinstall hook configured"
+
+          # The postinstall hook must never break installing the published tarball.
+          # (The addon itself is darwin-only; its build is exercised by the macOS harness.)
+          echo "🔎 Installing packed tarball to verify postinstall does not fail..."
+          TEST_PREFIX=$(mktemp -d)
+          npm install --prefix "$TEST_PREFIX" "./$TARBALL" --no-audit --no-fund
+          test -f "$TEST_PREFIX/node_modules/oh-my-claude-sisyphus/scripts/postinstall-contained-fs.mjs"
+          rm -rf "$TEST_PREFIX"
+          echo "✓ packed tarball installs cleanly with postinstall hook"
 
           # ENOTEMPTY hardening (mirrors .github/workflows/upgrade-test.yml):
           # the global node_modules dir is reused across runs on GitHub-hosted
@@ -569,7 +613,11 @@ jobs:
           npm publish "$FINAL_TARBALL" --ignore-scripts --access public --provenance 2>&1 | tee npm-publish.log
           VERIFICATION_PREFIX="$RUNNER_TEMP/npm-provenance-verification"
           AUDIT_JSON="$VERIFICATION_PREFIX/audit-signatures.json"
-          MAX_PROPAGATION_ATTEMPTS=12
+          # The archive is already on the registry at this point: everything below
+          # only waits for it to become visible. The budget must outlast real
+          # propagation (#4083 saw the version land 1.7s after a 12-attempt
+          # window gave up), so keep ~28 minutes of polling.
+          MAX_PROPAGATION_ATTEMPTS=30
           ATTEMPT=1
           BACKOFF_SECONDS=10
           while [ "$ATTEMPT" -le "$MAX_PROPAGATION_ATTEMPTS" ]; do
@@ -578,7 +626,8 @@ jobs:
               break
             fi
             if [ "$ATTEMPT" -eq "$MAX_PROPAGATION_ATTEMPTS" ]; then
-              echo "npm registry propagation did not complete after $MAX_PROPAGATION_ATTEMPTS attempts" >&2
+              echo "oh-my-claude-sisyphus@$VERSION was PUBLISHED to the registry; it did not become visible after $MAX_PROPAGATION_ATTEMPTS attempts" >&2
+              echo "do not republish: recover the GitHub Release with the Release Recovery workflow (tag=$GITHUB_REF_NAME sha=$GITHUB_SHA)" >&2
               exit 1
             fi
             ATTEMPT=$((ATTEMPT + 1))

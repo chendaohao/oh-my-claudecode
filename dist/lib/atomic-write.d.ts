@@ -25,6 +25,28 @@ export interface AtomicWriteHooks {
     readonly afterRename?: () => void;
 }
 /**
+ * Exact file identity. `dev`/`ino` are BigInt because NTFS file IDs are
+ * `(sequence << 48) | mftIndex`: once the sequence number reaches 32 the
+ * value exceeds Number.MAX_SAFE_INTEGER and a Number `ino` rounds away the
+ * low MFT-index bits, so two distinct files can compare equal.
+ */
+export interface FileIdentity {
+    readonly dev: bigint;
+    readonly ino: bigint;
+}
+/** Normalize a stat result (BigInt or Number) into a comparable identity. */
+export declare function fileIdentityOf(stats: {
+    readonly dev: number | bigint;
+    readonly ino: number | bigint;
+}): FileIdentity;
+/**
+ * Compare two file identities for equality.
+ * On Windows, Node returns real volume serial from fstat but 0 from lstat/stat,
+ * so we compare dev only when NOT on Windows OR both dev values are non-zero.
+ * Inode comparison is always performed.
+ */
+export declare function sameFileIdentity(a: FileIdentity, b: FileIdentity): boolean;
+/**
  * Write JSON data atomically to a file.
  * Uses temp file + atomic rename pattern to ensure durability.
  *
@@ -77,6 +99,10 @@ export interface AtomicBatchWrite {
     content: string;
     mode?: number;
 }
+/**
+ * Exported for use in other state management functions.
+ * Shared file identity comparison that handles Windows dev=0 quirk.
+ */
 export declare function atomicWriteBatchSync(writes: AtomicBatchWrite[], hooks?: AtomicWriteHooks): void;
 export declare function safeReadJson<T>(filePath: string): Promise<T | null>;
 //# sourceMappingURL=atomic-write.d.ts.map

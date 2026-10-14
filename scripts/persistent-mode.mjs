@@ -25,6 +25,7 @@ import { spawn } from "child_process";
 import { join, dirname, resolve, normalize, sep } from "path";
 import { homedir } from "os";
 import { fileURLToPath, pathToFileURL } from "url";
+import { isJevShadowOptedIn, recordJevShadow } from "./lib/jev-shadow.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -32,6 +33,54 @@ const __dirname = dirname(__filename);
 const SAFE_CONTINUE = { continue: true, suppressOutput: true };
 const DEFAULT_SAFETY_TIMEOUT_MS = 8500;
 const SAFE_EXIT_FLUSH_TIMEOUT_MS = 100;
+const LOOP_CONTINUATION_NOUL_QUESTIONS = {
+  task_complete: {
+    type: "noul",
+    instructions: "Is the task complete — is there no substantive work left for this mode?",
+    criteria: {},
+  },
+};
+const LEARNER_EXTRACTION_QUESTIONS = {
+  extractable_moment: {
+    type: "noul",
+    instructions: "Does this assistant message contain an extractable memory-worthy moment?",
+    criteria: {
+      true: "Contains a reusable pattern, decision, or correction worth persisting",
+      false: "Routine work with nothing worth extracting",
+    },
+  },
+};
+
+function recordLoopContinuationShadow(state, heuristic) {
+  recordJevShadow({
+    point: "loop-continuation",
+    state,
+    questions: LOOP_CONTINUATION_NOUL_QUESTIONS,
+    heuristic,
+  });
+}
+
+async function recordLearnerExtractionShadow(data) {
+  const assistantMessage = data.last_assistant_message;
+  if (typeof assistantMessage !== "string" || !assistantMessage.trim() || !isJevShadowOptedIn("learner-extraction")) {
+    return;
+  }
+
+  try {
+    const detectorPath = join(__dirname, "..", "dist", "hooks", "learner", "detector.js");
+    if (!existsSync(detectorPath)) return;
+    const { detectExtractableMoment } = await import(pathToFileURL(detectorPath).href);
+    const heuristic = detectExtractableMoment(assistantMessage);
+    recordJevShadow({
+      point: "learner-extraction",
+      state: { assistant_message: assistantMessage, user_message: null },
+      questions: LEARNER_EXTRACTION_QUESTIONS,
+      heuristic,
+    });
+  } catch {
+    // Missing optional detector output or resolver plumbing must not affect Stop.
+  }
+}
 
 
 function getSafetyTimeoutMs() {
@@ -114,37 +163,34 @@ function readJsonFile(path) {
 }
 
 /**
- * Get hard max iterations from OMC_SECURITY / config file.
- * Returns 0 if unlimited (default).
+ * Get hard max iterations for persistent modes.
+ * Mirrors src/lib/security-config.ts getSecurityConfig(): default 500;
+ * OMC_SECURITY=strict caps at 200 and a config value may only tighten it.
+ * Returns 0 for unlimited (only reachable outside strict mode).
  */
 function getHardMaxIterations() {
-  // OMC_SECURITY=strict → default hard max 200
-  if (process.env.OMC_SECURITY === "strict") {
-    // Check config file for override
-    const configOverride = readSecurityConfigValue("hardMaxIterations");
-    return typeof configOverride === "number" ? configOverride : 200;
-  }
-  // Check config file only
   const configValue = readSecurityConfigValue("hardMaxIterations");
-  return typeof configValue === "number" ? configValue : 0;
+  if (process.env.OMC_SECURITY === "strict") {
+    return Math.min(200, typeof configValue === "number" && configValue > 0 ? configValue : 200);
+  }
+  return typeof configValue === "number" ? configValue : 500;
 }
 
 /**
  * Read a single value from the security section of omc config files.
+ * Mirrors src/lib/security-config.ts loadSecurityFromConfigFiles(): the first
+ * config file with a security section wins.
  */
 function readSecurityConfigValue(key) {
   const paths = [
     join(process.cwd(), ".claude", "omc.jsonc"),
-    join(homedir(), ".config", "claude-omc", "config.jsonc"),
+    join(getOmcUserConfigDir(), "claude-omc", "config.jsonc"),
   ];
   for (const p of paths) {
     try {
       if (!existsSync(p)) continue;
-      const raw = readFileSync(p, "utf-8");
-      // Strip JSONC comments (// and /* */)
-      const json = raw.replace(/\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "");
-      const parsed = JSON.parse(json);
-      if (parsed?.security && parsed.security[key] !== undefined) {
+      const parsed = JSON.parse(stripJsoncComments(readFileSync(p, "utf-8")));
+      if (parsed?.security && typeof parsed.security === "object") {
         return parsed.security[key];
       }
     } catch {
@@ -152,6 +198,85 @@ function readSecurityConfigValue(key) {
     }
   }
   return undefined;
+}
+
+// Inlined so the standalone hook stays build-independent
+// (mirrors scripts/keyword-detector.mjs and src/utils/jsonc.ts).
+function getOmcUserConfigDir() {
+  if (process.platform === 'win32') {
+    return process.env.APPDATA || join(homedir(), 'AppData', 'Roaming');
+  }
+  return process.env.XDG_CONFIG_HOME || join(homedir(), '.config');
+}
+
+// Mirrors src/utils/jsonc.ts:stripJsoncComments (strips comments AND trailing commas)
+function stripJsoncComments(content) {
+  return stripTrailingCommas(stripComments(content));
+}
+
+function stripComments(content) {
+  let result = '';
+  let i = 0;
+  while (i < content.length) {
+    if (content[i] === '/' && content[i + 1] === '/') {
+      while (i < content.length && content[i] !== '\n') i++;
+      continue;
+    }
+    if (content[i] === '/' && content[i + 1] === '*') {
+      i += 2;
+      while (i < content.length && !(content[i] === '*' && content[i + 1] === '/')) i++;
+      if (i >= content.length) throw new SyntaxError('Unterminated JSONC block comment');
+      i += 2;
+      result += ' ';
+      continue;
+    }
+    if (content[i] === '"') {
+      result += content[i++];
+      while (i < content.length && content[i] !== '"') {
+        if (content[i] === '\\') {
+          result += content[i++];
+          if (i < content.length) result += content[i++];
+          continue;
+        }
+        result += content[i++];
+      }
+      if (i < content.length) result += content[i++];
+      continue;
+    }
+    result += content[i++];
+  }
+  return result;
+}
+
+// Mirrors src/utils/jsonc.ts:stripTrailingCommas (comma before a closing } or ]).
+function stripTrailingCommas(content) {
+  let result = '';
+  let i = 0;
+  while (i < content.length) {
+    if (content[i] === '"') {
+      result += content[i++];
+      while (i < content.length && content[i] !== '"') {
+        if (content[i] === '\\') {
+          result += content[i++];
+          if (i < content.length) result += content[i++];
+          continue;
+        }
+        result += content[i++];
+      }
+      if (i < content.length) result += content[i++];
+      continue;
+    }
+    if (content[i] === ',') {
+      let j = i + 1;
+      while (j < content.length && /\s/.test(content[j])) j++;
+      if (content[j] === '}' || content[j] === ']') {
+        i++;
+        continue;
+      }
+    }
+    result += content[i++];
+  }
+  return result;
 }
 
 function writeJsonFile(path, data) {
@@ -563,9 +688,14 @@ function getAutopilotPhase(state) {
     : "unspecified";
 }
 
+// keyword-detector persists this in place of a prompt that was only a pasted
+// system echo; a state carrying it has no user request to resume (#4250).
+const PASTED_ECHO_PROMPT_SENTINEL = "(prompt omitted: pasted system echo)";
+
 function isAutopilotRoutingEchoPrompt(promptText) {
   return /^\[MAGIC KEYWORDS?(?: DETECTED)?:\s*AUTOPILOT\s*\]\s*$/i.test(promptText) ||
-    /^\/(?:oh-my-claudecode:|omc:)?autopilot(?:\s+execute)?\s*$/i.test(promptText);
+    /^\/(?:oh-my-claudecode:|omc:)?autopilot(?:\s+execute)?\s*$/i.test(promptText) ||
+    promptText === PASTED_ECHO_PROMPT_SENTINEL;
 }
 
 function isOrphanedAutopilotRoutingEchoState(state) {
@@ -1134,6 +1264,10 @@ async function main() {
       return;
     }
 
+    // Stop supplies the assistant response text directly; only load the
+    // existing detector when this advisory point is explicitly enabled.
+    await recordLearnerExtractionShadow(data);
+
     const directory = data.cwd || data.directory || process.cwd();
     const sessionIdRaw = data.sessionId || data.session_id || data.sessionid || "";
     const sessionId = sanitizeSessionId(sessionIdRaw);
@@ -1263,35 +1397,11 @@ async function main() {
         const iteration = ralph.state.iteration || 1;
         const maxIter = ralph.state.max_iterations || 100;
 
-        if (iteration < maxIter) {
-          const toolError = readLastToolError(stateDir);
-          const errorGuidance = getToolErrorRetryGuidance(toolError);
-
-          ralph.state.iteration = iteration + 1;
-          ralph.state.last_checked_at = new Date().toISOString();
-          if (!shouldWriteStateBack(ralph.path)) {
-            console.log(JSON.stringify({ continue: true, suppressOutput: true }));
-            return;
-          }
-          writeJsonFile(ralph.path, ralph.state);
-
-          let reason = `[RALPH LOOP - ITERATION ${iteration + 1}/${maxIter}] Work is NOT done. Continue working.\nWhen FULLY complete (after Architect verification), run /oh-my-claudecode:cancel to cleanly exit ralph mode and clean up all state files. If cancel fails, retry with /oh-my-claudecode:cancel --force.\n${ralph.state.prompt ? `Task: ${ralph.state.prompt}` : ""}`;
-          if (errorGuidance) {
-            reason = errorGuidance + reason;
-          }
-
-          console.log(
-            JSON.stringify({
-              decision: "block",
-              reason,
-            }),
-          );
-          return;
-        }
-
-        // Check hard max before extending
+        // Hard max: check the iteration count directly against the security
+        // limit before continuing or extending, so a high max_iterations value
+        // cannot bypass it (mirrors src/hooks/persistent-mode/index.ts).
         const hardMax = getHardMaxIterations();
-        if (hardMax > 0 && maxIter >= hardMax) {
+        if (hardMax > 0 && iteration >= hardMax) {
           ralph.state.active = false;
           ralph.state.last_checked_at = new Date().toISOString();
           if (!shouldWriteStateBack(ralph.path)) {
@@ -1309,6 +1419,48 @@ async function main() {
           return;
         }
 
+        if (iteration < maxIter) {
+          const toolError = readLastToolError(stateDir);
+          const errorGuidance = getToolErrorRetryGuidance(toolError);
+
+          ralph.state.iteration = iteration + 1;
+          ralph.state.last_checked_at = new Date().toISOString();
+          if (!shouldWriteStateBack(ralph.path)) {
+            console.log(JSON.stringify({ continue: true, suppressOutput: true }));
+            return;
+          }
+          writeJsonFile(ralph.path, ralph.state);
+
+          let reason = `[RALPH LOOP - ITERATION ${iteration + 1}/${maxIter}] Work is NOT done. Continue working.\nWhen FULLY complete (after Architect verification), run /oh-my-claudecode:cancel to cleanly exit ralph mode and clean up all state files. If cancel fails, retry with /oh-my-claudecode:cancel --force.\n${ralph.state.prompt ? `Task: ${ralph.state.prompt}` : ""}`;
+          if (errorGuidance) {
+            reason = errorGuidance + reason;
+          }
+
+          const heuristic = {
+            mode: "ralph",
+            shouldBlock: true,
+            iteration: ralph.state.iteration,
+            maxIterations: maxIter,
+          };
+          const judgmentState = {
+            mode_name: "ralph",
+            session_id: sessionId || null,
+            iteration: ralph.state.iteration,
+            phase: null,
+            should_block: true,
+            continuation_excerpt: reason,
+          };
+          recordLoopContinuationShadow(judgmentState, heuristic);
+
+          console.log(
+            JSON.stringify({
+              decision: "block",
+              reason,
+            }),
+          );
+          return;
+        }
+
         // Extend and keep going.
         ralph.state.max_iterations = maxIter + 10;
         ralph.state.last_checked_at = new Date().toISOString();
@@ -1319,6 +1471,19 @@ async function main() {
         writeJsonFile(ralph.path, ralph.state);
 
         const ralphExtendedReason = `[RALPH LOOP - EXTENDED] Max iterations reached; extending to ${ralph.state.max_iterations} and continuing. When FULLY complete (after Architect verification), run /oh-my-claudecode:cancel (or --force).`;
+        recordLoopContinuationShadow({
+          mode_name: "ralph",
+          session_id: sessionId || null,
+          iteration: ralph.state.iteration,
+          phase: null,
+          should_block: true,
+          continuation_excerpt: ralphExtendedReason,
+        }, {
+          mode: "ralph",
+          shouldBlock: true,
+          iteration: ralph.state.iteration,
+          maxIterations: ralph.state.max_iterations,
+        });
         console.log(
           JSON.stringify({
             decision: "block",
@@ -1472,6 +1637,20 @@ async function main() {
             if (errorGuidance) {
               reason = errorGuidance + reason;
             }
+
+            recordLoopContinuationShadow({
+              mode_name: "autopilot",
+              session_id: sessionId || null,
+              iteration: newCount,
+              phase,
+              should_block: true,
+              continuation_excerpt: reason,
+            }, {
+              mode: "autopilot",
+              shouldBlock: true,
+              iteration: newCount,
+              phase,
+            });
 
             console.log(
               JSON.stringify({

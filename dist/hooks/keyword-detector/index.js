@@ -281,8 +281,8 @@ export function sanitizeForKeywordDetection(text) {
     let result = stripPastedCommandPayloads(text);
     // Remove HTML/markdown comments first so keywords inside comments cannot trigger modes
     result = result.replace(/<!--[\s\S]*?-->/g, '');
-    // Remove XML tag blocks (opening + content + closing; tag names must match)
-    result = result.replace(/<(\w[\w-]*)[\s>][\s\S]*?<\/\1>/g, '');
+    // Keep optional closing-tag attributes on one line and stop at adjacent tags.
+    result = result.replace(/<(\w[\w-]*)[\s>][\s\S]*?<\/\1(?:[ \t][^<>\r\n]*)?>/g, '');
     // Remove self-closing XML tags
     result = result.replace(/<\w[\w-]*(?:\s[^>]*)?\s*\/>/g, '');
     // Remove URLs
@@ -712,13 +712,13 @@ export function getAllKeywords(text) {
  * This is the recommended function to use in the bridge hook for keyword detection.
  */
 export function getAllKeywordsWithSizeCheck(text, options = {}) {
-    const { enabled = true, smallWordLimit = 50, largeWordLimit = 200, suppressHeavyModesForSmallTasks = true, } = options;
+    const { enabled = true, smallWordLimit = 50, largeWordLimit = 200, suppressHeavyModesForSmallTasks = true, jevTaskSizeResult, } = options;
     const keywords = getAllKeywords(text);
     if (!enabled || !suppressHeavyModesForSmallTasks || keywords.length === 0) {
-        return { keywords, taskSizeResult: null, suppressedKeywords: [] };
+        return { keywords, taskSizeResult: jevTaskSizeResult ?? null, suppressedKeywords: [] };
     }
     const thresholds = { smallWordLimit, largeWordLimit };
-    const taskSizeResult = classifyTaskSize(text, thresholds);
+    const taskSizeResult = jevTaskSizeResult ?? classifyTaskSize(text, thresholds);
     // Only suppress heavy modes for small tasks
     if (taskSizeResult.size !== 'small') {
         return { keywords, taskSizeResult, suppressedKeywords: [] };
